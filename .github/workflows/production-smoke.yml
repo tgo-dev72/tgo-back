@@ -26,6 +26,9 @@ jobs:
           curl --fail --silent --show-error --retry 2 --max-time 30 \
             --header "Authorization: Bearer ${{ secrets.PRODUCTION_CRON_SECRET }}" \
             https://api.tijarago.com/api/internal/platform-monitoring/ >/tmp/monitoring.json
+          curl --fail --silent --show-error --retry 2 --max-time 30 \
+            --header "Authorization: Bearer ${{ secrets.PRODUCTION_CRON_SECRET }}" \
+            https://api.tijarago.com/api/internal/subscription-lifecycle/ >/tmp/subscription-lifecycle.json
           python - <<'PY'
           import json
           from pathlib import Path
@@ -34,8 +37,10 @@ jobs:
           designs = json.loads(Path('/tmp/designs.json').read_text())
           plans = json.loads(Path('/tmp/plans.json').read_text())
           monitoring = json.loads(Path('/tmp/monitoring.json').read_text())
+          subscription_lifecycle = json.loads(Path('/tmp/subscription-lifecycle.json').read_text())
           assert csrf.get('csrfToken'), 'CSRF endpoint returned no token'
           assert any(item.get('key') == 'basic' and item.get('status') == 'ready' for item in designs), 'Basic design is not ready'
           assert plans.get('plans'), 'Plan catalog is empty'
           assert monitoring.get('status') in {'healthy', 'unchanged', 'disabled', 'alert', 'recovered'}, 'Monitoring cron returned an invalid status'
+          assert isinstance(subscription_lifecycle.get('sent'), int), 'Subscription lifecycle cron returned an invalid result'
           PY

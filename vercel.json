@@ -57,7 +57,7 @@
     },
     {
       "path": "/api/internal/subscription-lifecycle/",
-      "schedule": "0 * * * *"
+      "schedule": "5 1 * * *"
     }
   ],
   "routes": [
