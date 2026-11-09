@@ -1,0 +1,46 @@
+name: Backend CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: pip install -r requirements.txt
+      - run: npm ci
+      - name: Django checks and migration drift
+        env:
+          DATABASE_URL: "sqlite:///:memory:"
+          DESIGN_STOCK_PATH: ${{ github.workspace }}/tests/fixtures/design-stock
+          STOREFRONT_RELEASE_REVISION: ""
+          DJANGO_SECRET_KEY: ci-only-secret-key-with-sufficient-length-and-diversity-2026
+          IS_DEBUG: "False"
+        run: |
+          python manage.py check
+          python manage.py makemigrations --check --dry-run
+      - name: Backend tests
+        env:
+          DATABASE_URL: "sqlite:///:memory:"
+          DESIGN_STOCK_PATH: ${{ github.workspace }}/tests/fixtures/design-stock
+          STOREFRONT_RELEASE_REVISION: ""
+          DJANGO_SECRET_KEY: ci-only-secret-key-with-sufficient-length-and-diversity-2026
+          IS_DEBUG: "False"
+        run: python manage.py test --noinput
+      - run: npm run check:queue

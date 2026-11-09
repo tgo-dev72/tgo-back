@@ -1,0 +1,77 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": null,
+  "framework": null,
+  "fluid": true,
+  "functions": {
+    "api/django.py": {
+      "maxDuration": 300,
+      "excludeFiles": "{.env,.env.*,.vercel/**,venv/**,node_modules/**,release-evidence/**,cert.pem,key.pem,ssl/**,*.sqlite3,**/__pycache__/**,**/*.pyc,**/tests.py,**/tests/**}"
+    },
+    "api/storefront-queue.ts": {
+      "maxDuration": 300,
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "storefront-deployments",
+          "retryAfterSeconds": 60,
+          "initialDelaySeconds": 0
+        }
+      ]
+    },
+    "api/domain-queue.ts": {
+      "maxDuration": 120,
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "storefront-domains",
+          "retryAfterSeconds": 300,
+          "initialDelaySeconds": 0
+        }
+      ]
+    },
+    "api/campaign-queue.ts": {
+      "maxDuration": 180,
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "marketing-campaigns",
+          "retryAfterSeconds": 60,
+          "initialDelaySeconds": 0
+        }
+      ]
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/internal/analytics-maintenance/",
+      "schedule": "15 0 * * *"
+    },
+    {
+      "path": "/api/internal/mail/maintenance/",
+      "schedule": "35 0 * * *"
+    },
+    {
+      "path": "/api/internal/platform-monitoring/",
+      "schedule": "55 0 * * *"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/storefront-queue",
+      "dest": "/api/storefront-queue"
+    },
+    {
+      "src": "/api/domain-queue",
+      "dest": "/api/domain-queue"
+    },
+    {
+      "src": "/api/campaign-queue",
+      "dest": "/api/campaign-queue"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/api/django"
+    }
+  ]
+}

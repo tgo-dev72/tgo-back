@@ -1,0 +1,43 @@
+from django.urls import path
+
+from .views import (
+    StoreConfigRetrieveUpdateView,
+    StoreEmailForwardingView,
+    StoreAddressAvailabilityView,
+    StoreCustomerListView,
+    StoreDeleteView,
+    StoreListCreateView,
+    StoreLogoView,
+    StorefrontAssetCreateView,
+    StorefrontAssetSignView,
+    StorefrontPageDetailView,
+    StorefrontPageListCreateView,
+    StorefrontPagePublishView,
+    StorefrontDomainListCreateView,
+    StorefrontDomainDetailView,
+    StorefrontDomainVerifyView,
+    StorefrontDomainPrimaryView,
+    StoreMemberDetailView,
+    StoreMemberListCreateView,
+)
+
+urlpatterns = [
+    path("", StoreListCreateView.as_view(), name="store-list"),
+    path("availability/", StoreAddressAvailabilityView.as_view(), name="store-address-availability"),
+    path("<int:store_id>/config/", StoreConfigRetrieveUpdateView.as_view(), name="store-config"),
+    path("<int:store_id>/domains/", StorefrontDomainListCreateView.as_view(), name="storefront-domain-list"),
+    path("<int:store_id>/domains/<int:domain_id>/", StorefrontDomainDetailView.as_view(), name="storefront-domain-detail"),
+    path("<int:store_id>/domains/<int:domain_id>/verify/", StorefrontDomainVerifyView.as_view(), name="storefront-domain-verify"),
+    path("<int:store_id>/domains/<int:domain_id>/primary/", StorefrontDomainPrimaryView.as_view(), name="storefront-domain-primary"),
+    path("<int:store_id>/email-forwarding/", StoreEmailForwardingView.as_view(), name="store-email-forwarding"),
+    path("<int:store_id>/pages/", StorefrontPageListCreateView.as_view(), name="storefront-page-list"),
+    path("<int:store_id>/pages/<slug:page_key>/publish/", StorefrontPagePublishView.as_view(), name="storefront-page-publish"),
+    path("<int:store_id>/pages/<slug:page_key>/", StorefrontPageDetailView.as_view(), name="storefront-page-detail"),
+    path("<int:store_id>/storefront-assets/", StorefrontAssetCreateView.as_view(), name="storefront-asset-create"),
+    path("<int:store_id>/storefront-assets/sign/", StorefrontAssetSignView.as_view(), name="storefront-asset-sign"),
+    path("<int:store_id>/", StoreDeleteView.as_view(), name="store-delete"),
+    path("<int:store_id>/customers/", StoreCustomerListView.as_view(), name="store-customers"),
+    path("<int:store_id>/members/", StoreMemberListCreateView.as_view(), name="store-members"),
+    path("<int:store_id>/members/<int:member_id>/", StoreMemberDetailView.as_view(), name="store-member-detail"),
+    path("<int:store_id>/logo/", StoreLogoView.as_view(), name="store-logo"),
+]

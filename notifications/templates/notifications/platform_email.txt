@@ -1,0 +1,18 @@
+{{ title }}
+{% if recipient_name %}
+{{ hello_label }} {{ recipient_name }}{{ greeting_suffix }}
+{% endif %}
+{% for paragraph in paragraphs %}
+{{ paragraph }}
+{% endfor %}
+{% if details %}
+{% for item in details %}{{ item.label }}: {{ item.value }}
+{% endfor %}{% endif %}
+{% if action_url and action_label %}
+{{ action_label }}: {{ action_url }}
+{% endif %}
+{% if note %}
+Note: {{ note }}
+{% endif %}
+{{ help_label }} {{ support_email }}
+{{ brand_name }} — {{ website_url }}

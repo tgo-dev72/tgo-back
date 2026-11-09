@@ -1,0 +1,96 @@
+# Secrets and machine-specific environment files. The example is the
+# versioned deployment contract and must remain commit-visible.
+.env*
+!.env.example
+
+# Python environments, caches, test output, and local databases.
+venv/
+.venv/
+**/venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-shm
+*.sqlite3-wal
+.cache/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+build/
+dist/
+**/build/
+**/dist/
+*.egg-info/
+
+# JavaScript dependencies and generated compiler/cache state.
+node_modules/
+**/node_modules/
+.wrangler/
+**/.wrangler/
+*.tsbuildinfo
+.npm/
+**/.vite/
+
+# Runtime uploads and collected static output. Production media is stored in
+# Cloudinary and must not be copied back into the source repository.
+media/
+media-local/
+staticfiles/*
+!staticfiles/.gitkeep
+
+# Local platform/provider state and development TLS material.
+.vercel/
+.vercel/**
+ssl/
+cert.pem
+key.pem
+*.pem
+
+# Editor, operating-system, log, and temporary artifacts.
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+*.pid
+*.swp
+*.swo
+*~
+*.tmp
+*.bak
+*.orig
+*.rej
+*.tgz
+*.tar.gz
+.codex/
+.agents/
+
+# Project documentation is maintained locally; release-critical previewer
+# runbooks are versioned with the implementation.
+/docs/*
+!/docs/theme-previewer/
+!/docs/theme-previewer/*.md
+!/docs/custom-domains.md
+!/docs/SEO_AUDIT_2026-11-03.md
+
+# Generated QA artifacts are archived separately.
+release-evidence/
+reviews/
+playwright-report/
+test-results/
+blob-report/
+coverage/
+
+/marketing/ads/
+/marketing/promo-video/
+/marketing/tutorials/

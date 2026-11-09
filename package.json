@@ -1,0 +1,17 @@
+{
+  "name": "tijarago-platform-api",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "check:queue": "tsc --noEmit -p tsconfig.queue.json"
+  },
+  "dependencies": {
+    "@vercel/queue": "^0.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

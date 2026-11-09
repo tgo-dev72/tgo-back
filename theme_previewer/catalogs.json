@@ -1,0 +1,57 @@
+{
+  "basic": {
+    "store_name": "Casa Market",
+    "brand_color": "#287A52",
+    "sections": [{"key": "home", "label": "Home & Living", "icon": "FaCouch:fa"}, {"key": "essentials", "label": "Everyday Essentials", "icon": "FaBoxOpen:fa"}],
+    "products": [
+      {"section": "home", "ref": "CM-101", "name": "Woven Table Basket", "description": "Hand-finished storage woven for everyday tables and shelves.", "price": "240.00", "colors": ["Natural", "Espresso"]},
+      {"section": "home", "ref": "CM-102", "name": "Atlas Cotton Throw", "description": "A soft cotton layer with a quiet geometric weave.", "price": "390.00", "colors": ["Sand", "Olive"]},
+      {"section": "essentials", "ref": "CM-201", "name": "Stoneware Carafe", "description": "A balanced ceramic carafe made for the table.", "price": "180.00", "colors": ["Chalk", "Terracotta"]},
+      {"section": "essentials", "ref": "CM-202", "name": "Market Tote", "description": "Durable canvas with long handles and an interior pocket.", "price": "160.00", "colors": ["Natural", "Navy"]}
+    ]
+  },
+  "beauty": {
+    "store_name": "Nūr Rituals",
+    "brand_color": "#8B5C55",
+    "sections": [{"key": "skincare", "label": "Skincare", "icon": "FaFlask:fa"}, {"key": "body", "label": "Body & Bath", "icon": "FaLeaf:fa"}],
+    "products": [
+      {"section": "skincare", "ref": "NR-101", "name": "Rose Water Essence", "description": "A lightweight hydrating essence for calm, refreshed skin.", "price": "220.00", "colors": ["50 ml", "100 ml"], "image_asset": "nur-rituals-hero.webp"},
+      {"section": "skincare", "ref": "NR-102", "name": "Argan Barrier Cream", "description": "Comforting daily moisture with argan and squalane.", "price": "310.00", "colors": ["Light", "Rich"], "image_asset": "nur-barrier-cream.webp"},
+      {"section": "body", "ref": "NR-201", "name": "Orange Blossom Oil", "description": "Silky body oil with a soft neroli finish.", "price": "280.00", "colors": ["100 ml", "200 ml"], "image_asset": "nur-orange-oil.webp"},
+      {"section": "body", "ref": "NR-202", "name": "Mineral Bath Soak", "description": "Mineral salts scented with cedar and lavender.", "price": "190.00", "colors": ["Cedar", "Lavender"], "image_asset": "nur-bath-soak.webp"}
+    ]
+  },
+  "fashion": {
+    "store_name": "Maison Sable",
+    "brand_color": "#A67C2E",
+    "sections": [{"key": "women", "label": "Women", "icon": "FaBagShopping:fa6"}, {"key": "men", "label": "Men", "icon": "FaTshirt:fa"}],
+    "products": [
+      {"section": "men", "ref": "MS-101", "name": "Ivory Linen Overshirt", "description": "A breathable linen layer with an easy tailored line.", "price": "890.00", "colors": ["Ivory", "Sand"], "image_asset": "maison-sable-men-hero.webp"},
+      {"section": "men", "ref": "MS-102", "name": "Rust Camp-Collar Shirt", "description": "A warm lightweight shirt cut for relaxed summer dressing.", "price": "690.00", "colors": ["Rust", "Stone"], "image_asset": "maison-sable-rust.webp"},
+      {"section": "men", "ref": "MS-201", "name": "Garment-Dyed Overshirt", "description": "A versatile cotton layer with a lived-in finish.", "price": "720.00", "colors": ["Stone", "Olive"], "image_asset": "maison-sable-ivory.webp"},
+      {"section": "men", "ref": "MS-202", "name": "Pleated Travel Trouser", "description": "Easy tailoring designed to move through the day.", "price": "680.00", "colors": ["Charcoal", "Sand"], "image_asset": "maison-sable-tailoring.webp"}
+    ]
+  },
+  "electronics": {
+    "store_name": "Circuit Lab",
+    "brand_color": "#1957D2",
+    "sections": [{"key": "audio", "label": "Audio", "icon": "FaLaptop:fa"}, {"key": "workspace", "label": "Workspace", "icon": "FaWrench:fa"}],
+    "products": [
+      {"section": "audio", "ref": "CL-101", "name": "Studio ANC Headphones", "description": "Focused wireless listening with adaptive noise control.", "price": "1890.00", "colors": ["Graphite", "Silver"]},
+      {"section": "audio", "ref": "CL-102", "name": "Pocket Speaker Mini", "description": "Compact room-filling sound with all-day battery life.", "price": "690.00", "colors": ["Black", "Blue"]},
+      {"section": "workspace", "ref": "CL-201", "name": "Precision Mechanical Keyboard", "description": "Low-profile tactile switches in a compact aluminum frame.", "price": "1290.00", "colors": ["Space Grey", "White"]},
+      {"section": "workspace", "ref": "CL-202", "name": "USB-C Studio Dock", "description": "One cable for displays, storage, power and network.", "price": "990.00", "colors": ["8 Port", "12 Port"]}
+    ]
+  },
+  "nexa": {
+    "store_name": "NEXA Objects",
+    "brand_color": "#B38A36",
+    "sections": [{"key": "objects", "label": "Objects", "icon": "FaGem:fa"}, {"key": "technology", "label": "Technology", "icon": "FaLaptop:fa"}],
+    "products": [
+      {"section": "objects", "ref": "NX-101", "name": "Arc Desk Lamp", "description": "Sculptural task light with warm, adjustable illumination.", "price": "1490.00", "colors": ["Obsidian", "Brass"], "image_asset": "nexa-arc-lamp-hero.webp"},
+      {"section": "objects", "ref": "NX-102", "name": "Monolith Clock", "description": "A quiet architectural timepiece milled from aluminum.", "price": "920.00", "colors": ["Black", "Natural"]},
+      {"section": "technology", "ref": "NX-201", "name": "Frame Wireless Charger", "description": "A considered charging stand for the desk or bedside.", "price": "740.00", "colors": ["Graphite", "Sand"]},
+      {"section": "technology", "ref": "NX-202", "name": "Field Audio System", "description": "Compact high-fidelity sound in a tactile metal enclosure.", "price": "2390.00", "colors": ["Black", "Champagne"]}
+    ]
+  }
+}

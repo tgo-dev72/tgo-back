@@ -1,0 +1,41 @@
+name: Production Smoke
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify public origins and API contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 2 --max-time 20 https://www.tijarago.com/ >/dev/null
+          curl --fail --silent --show-error --location --retry 2 --max-time 20 https://dash.tijarago.com/ >/dev/null
+          curl --fail --silent --show-error --location --retry 2 --max-time 20 https://admin.tijarago.com/ >/dev/null
+          curl --fail --silent --show-error --retry 2 --max-time 20 https://api.tijarago.com/accounts/csrf >/tmp/csrf.json
+          curl --fail --silent --show-error --retry 2 --max-time 20 https://api.tijarago.com/api/designs/ >/tmp/designs.json
+          curl --fail --silent --show-error --retry 2 --max-time 20 https://api.tijarago.com/api/subscriptions/plans >/tmp/plans.json
+          curl --fail --silent --show-error --retry 2 --max-time 30 \
+            --header "Authorization: Bearer ${{ secrets.PRODUCTION_CRON_SECRET }}" \
+            https://api.tijarago.com/api/internal/platform-monitoring/ >/tmp/monitoring.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          csrf = json.loads(Path('/tmp/csrf.json').read_text())
+          designs = json.loads(Path('/tmp/designs.json').read_text())
+          plans = json.loads(Path('/tmp/plans.json').read_text())
+          monitoring = json.loads(Path('/tmp/monitoring.json').read_text())
+          assert csrf.get('csrfToken'), 'CSRF endpoint returned no token'
+          assert any(item.get('key') == 'basic' and item.get('status') == 'ready' for item in designs), 'Basic design is not ready'
+          assert plans.get('plans'), 'Plan catalog is empty'
+          assert monitoring.get('status') in {'healthy', 'unchanged', 'disabled', 'alert', 'recovered'}, 'Monitoring cron returned an invalid status'
+          PY

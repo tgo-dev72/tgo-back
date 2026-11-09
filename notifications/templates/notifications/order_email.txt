@@ -1,0 +1,24 @@
+{{ brand_name }}
+
+{{ title }}
+
+{{ greeting }} {{ customer_name }}{{ greeting_suffix }}
+
+{% for paragraph in paragraphs %}{{ paragraph }}
+{% endfor %}
+{{ reference_label }}: {{ order_reference }}
+{{ payment }}: {{ payment_label }}
+
+{{ selection }}
+{% for item in items %}- {{ item.name }} — {{ quantity }} {{ item.quantity }} — {{ item.line_total }}
+{% endfor %}
+{{ subtotal_label }}: {{ subtotal_value }}
+{% if discount_value %}{{ discount_label }}: - {{ discount_value }}
+{% endif %}{{ delivery_label }}: {{ shipping_value }}
+{{ total_label }}: {{ total_value }}
+{% if delivery_address %}
+{{ address_label }}: {{ delivery_address }}
+{% endif %}
+{{ note }}
+
+{{ questions }} {{ support_email }}.

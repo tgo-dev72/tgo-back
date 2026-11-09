@@ -1,0 +1,307 @@
+[1mdiff --git a/orders/invoices.py b/orders/invoices.py[m
+[1mindex 9254d8f..4bda6c8 100644[m
+[1m--- a/orders/invoices.py[m
+[1m+++ b/orders/invoices.py[m
+[36m@@ -160,6 +160,11 @@[m [mdef issue_invoice(order):[m
+     existing = Invoice.objects.filter(order=order).first()[m
+     if existing:[m
+         return existing, False[m
+[32m+[m[32m    from subscriptions.entitlements import owner_has_store_entitlement[m
+[32m+[m[32m    from subscriptions.policies import INVOICING_KEY[m
+[32m+[m
+[32m+[m[32m    if not owner_has_store_entitlement(order.store, INVOICING_KEY):[m
+[32m+[m[32m        raise InvoiceError("Invoice issuance is not included in the store owner's current plan.")[m
+     config = StoreConfig.objects.select_for_update().get(store=order.store)[m
+     if not config.invoice_enabled:[m
+         raise InvoiceError("Invoice issuance is disabled for this store.")[m
+[1mdiff --git a/orders/services.py b/orders/services.py[m
+[1mindex 20f84f9..49a77e4 100644[m
+[1m--- a/orders/services.py[m
+[1m+++ b/orders/services.py[m
+[36m@@ -79,9 +79,19 @@[m [mdef _shipping_amount(config, discounted_merchandise_subtotal):[m
+     return Decimal("0.00") if discounted_merchandise_subtotal > threshold else shipping[m
+ [m
+ [m
+[31m-def _tax_totals(config, taxable_merchandise, shipping):[m
+[32m+[m[32mdef _invoicing_enabled(store, config):[m
+[32m+[m[32m    if not config.invoice_enabled:[m
+[32m+[m[32m        return False[m
+[32m+[m[32m    from subscriptions.entitlements import owner_has_store_entitlement[m
+[32m+[m[32m    from subscriptions.policies import INVOICING_KEY[m
+[32m+[m
+[32m+[m[32m    return owner_has_store_entitlement(store, INVOICING_KEY)[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef _tax_totals(config, taxable_merchandise, shipping, *, invoicing_enabled=None):[m
+     """Return the merchant-declared centralized tax snapshot."""[m
+[31m-    if not config.invoice_enabled or config.invoice_tax_rate is None:[m
+[32m+[m[32m    enabled = config.invoice_enabled if invoicing_enabled is None else invoicing_enabled[m
+[32m+[m[32m    if not enabled or config.invoice_tax_rate is None:[m
+         return Decimal("0.00"), [][m
+     rate = Decimal(str(config.invoice_tax_rate))[m
+     rows = [][m
+[36m@@ -329,7 +339,10 @@[m [mdef quote_order(store, customer, items, request=None, coupon_code=""):[m
+     )[m
+     coupon, discount = price_coupon(snapshot, coupon_code, product_totals)[m
+     shipping = _shipping_amount(config, subtotal - discount)[m
+[31m-    tax, tax_breakdown = _tax_totals(config, subtotal - discount, shipping)[m
+[32m+[m[32m    invoicing_enabled = _invoicing_enabled(store, config)[m
+[32m+[m[32m    tax, tax_breakdown = _tax_totals([m
+[32m+[m[32m        config, subtotal - discount, shipping, invoicing_enabled=invoicing_enabled,[m
+[32m+[m[32m    )[m
+     total = subtotal - discount + shipping + (tax if not config.invoice_prices_include_tax else Decimal("0.00"))[m
+     return {[m
+         "subtotal": subtotal, "discount": discount, "shipping": shipping,[m
+[36m@@ -364,6 +377,7 @@[m [mdef create_order(store, customer, items, payment_mode=Order.PaymentMode.ONLINE,[m
+             return existing[m
+ [m
+     config = StoreConfig.objects.get(store=store)[m
+[32m+[m[32m    invoicing_enabled = _invoicing_enabled(store, config)[m
+     is_cod = payment_mode == Order.PaymentMode.COD[m
+ [m
+     order = Order.objects.create([m
+[36m@@ -373,7 +387,7 @@[m [mdef create_order(store, customer, items, payment_mode=Order.PaymentMode.ONLINE,[m
+         status=Order.Status.PENDING,[m
+         is_paid=Order.IsPaid.COD if is_cod else Order.IsPaid.PENDING,[m
+         currency=config.currency,[m
+[31m-        tax_rate=config.invoice_tax_rate if config.invoice_enabled else None,[m
+[32m+[m[32m        tax_rate=config.invoice_tax_rate if invoicing_enabled else None,[m
+         prices_include_tax=config.invoice_prices_include_tax,[m
+         customer_name=customer.get("name", ""),[m
+         customer_email=customer.get("email", ""),[m
+[36m@@ -434,7 +448,7 @@[m [mdef create_order(store, customer, items, payment_mode=Order.PaymentMode.ONLINE,[m
+             fulfilled_quantity=fulfilled_qty,[m
+             reserved_quantity=reserved_qty,[m
+             price=unit_price,[m
+[31m-            tax_rate=config.invoice_tax_rate if config.invoice_enabled else None,[m
+[32m+[m[32m            tax_rate=config.invoice_tax_rate if invoicing_enabled else None,[m
+             available=can_fulfill,[m
+             exception_id=exception_id.id if exception_id else None,[m
+             stock_deducted=False,[m
+[36m@@ -447,7 +461,12 @@[m [mdef create_order(store, customer, items, payment_mode=Order.PaymentMode.ONLINE,[m
+     order.save(update_fields=["subtotal", "updated_at"])[m
+     discount_amount = reserve_coupon(order, coupon_code, product_totals)[m
+     shipping_amount = _shipping_amount(config, order.subtotal - discount_amount)[m
+[31m-    tax_amount, tax_breakdown = _tax_totals(config, order.subtotal - discount_amount, shipping_amount)[m
+[32m+[m[32m    tax_amount, tax_breakdown = _tax_totals([m
+[32m+[m[32m        config,[m
+[32m+[m[32m        order.subtotal - discount_amount,[m
+[32m+[m[32m        shipping_amount,[m
+[32m+[m[32m        invoicing_enabled=invoicing_enabled,[m
+[32m+[m[32m    )[m
+     order.shipping_amount = shipping_amount[m
+     order.tax_amount = tax_amount[m
+     order.tax_breakdown = tax_breakdown[m
+[1mdiff --git a/orders/tests_invoices.py b/orders/tests_invoices.py[m
+[1mindex fa87bd6..c92c415 100644[m
+[1m--- a/orders/tests_invoices.py[m
+[1m+++ b/orders/tests_invoices.py[m
+[36m@@ -19,11 +19,19 @@[m [mfrom orders.services import confirm_order, deliver_order, ship_order[m
+ from orders.tests import item, make_product, make_store[m
+ from coupons.models import Coupon[m
+ from store.models import StoreConfig, StoreMember[m
+[32m+[m[32mfrom subscriptions.models import EntitlementDefinition, PlanEntitlement, SubscriptionPlan[m
+ [m
+ [m
+ class InvoiceTests(TestCase):[m
+     def setUp(self):[m
+         self.store, section = make_store(slug="invoice-store")[m
+[32m+[m[32m        self.owner = get_user_model().objects.create_user(email="owner-invoice@example.test", password="pw")[m
+[32m+[m[32m        StoreMember.objects.create(user=self.owner, store=self.store, role=StoreMember.Roles.OWNER)[m
+[32m+[m[32m        PlanEntitlement.objects.update_or_create([m
+[32m+[m[32m            plan=SubscriptionPlan.objects.get(slug="free"),[m
+[32m+[m[32m            definition=EntitlementDefinition.objects.get(key="invoicing.issue"),[m
+[32m+[m[32m            defaults={"value": True},[m
+[32m+[m[32m        )[m
+         self.product, self.variant = make_product(self.store, section, price=Decimal("120.00"), quantity=400)[m
+         StoreConfig.objects.filter(store=self.store).update([m
+             currency="MAD", default_locale="fr", invoice_enabled=True, invoice_legal_name="Atelier Sable SARL",[m
+[36m@@ -49,10 +57,8 @@[m [mclass InvoiceTests(TestCase):[m
+         return SimpleUploadedFile(name, output.getvalue(), content_type="image/png")[m
+ [m
+     def test_preview_pdf_renders_all_locales_without_allocating_number(self):[m
+[31m-        user = get_user_model().objects.create_user(email="owner-invoice@example.test", password="pw")[m
+[31m-        StoreMember.objects.create(user=user, store=self.store, role=StoreMember.Roles.OWNER)[m
+         client = APIClient()[m
+[31m-        client.force_authenticate(user)[m
+[32m+[m[32m        client.force_authenticate(self.owner)[m
+         for locale in ("fr", "en", "ar"):[m
+             with self.subTest(locale=locale):[m
+                 StoreConfig.objects.filter(store=self.store).update(default_locale=locale)[m
+[36m@@ -64,22 +70,43 @@[m [mclass InvoiceTests(TestCase):[m
+         self.assertFalse(Invoice.objects.exists())[m
+ [m
+     def test_activation_allows_approved_arabic_pdf(self):[m
+[31m-        user = get_user_model().objects.create_user(email="owner-validation@example.test", password="pw")[m
+[31m-        StoreMember.objects.create(user=user, store=self.store, role=StoreMember.Roles.OWNER)[m
+[31m-        client = APIClient(); client.force_authenticate(user)[m
+[32m+[m[32m        client = APIClient(); client.force_authenticate(self.owner)[m
+         StoreConfig.objects.filter(store=self.store).update(invoice_enabled=False, default_locale="ar")[m
+         response = client.patch(reverse("store-config", args=[self.store.id]), {"invoice_enabled": True}, format="json")[m
+         self.assertEqual(response.status_code, 200)[m
+ [m
+     def test_activation_requires_central_tax_percentage(self):[m
+[31m-        user = get_user_model().objects.create_user(email="owner-tax-validation@example.test", password="pw")[m
+[31m-        StoreMember.objects.create(user=user, store=self.store, role=StoreMember.Roles.OWNER)[m
+[31m-        client = APIClient(); client.force_authenticate(user)[m
+[32m+[m[32m        client = APIClient(); client.force_authenticate(self.owner)[m
+         StoreConfig.objects.filter(store=self.store).update(invoice_enabled=False, invoice_tax_rate=None)[m
+         response = client.patch(reverse("store-config", args=[self.store.id]), {"invoice_enabled": True}, format="json")[m
+         self.assertEqual(response.status_code, 400)[m
+         self.assertIn("invoice_tax_rate", response.data)[m
+ [m
+[32m+[m[32m    def test_invoice_activation_preview_and_issuance_require_entitlement(self):[m
+[32m+[m[32m        PlanEntitlement.objects.filter([m
+[32m+[m[32m            plan__slug="free",[m
+[32m+[m[32m            definition__key="invoicing.issue",[m
+[32m+[m[32m        ).update(value=False)[m
+[32m+[m[32m        StoreConfig.objects.filter(store=self.store).update(invoice_enabled=False)[m
+[32m+[m[32m        client = APIClient(); client.force_authenticate(self.owner)[m
+[32m+[m
+[32m+[m[32m        activation = client.patch([m
+[32m+[m[32m            reverse("store-config", args=[self.store.id]),[m
+[32m+[m[32m            {"invoice_enabled": True},[m
+[32m+[m[32m            format="json",[m
+[32m+[m[32m        )[m
+[32m+[m[32m        preview = client.get(reverse("merchant-invoice-preview", args=[self.store.id]))[m
+[32m+[m[32m        StoreConfig.objects.filter(store=self.store).update(invoice_enabled=True)[m
+[32m+[m
+[32m+[m[32m        self.assertEqual(activation.status_code, 400)[m
+[32m+[m[32m        self.assertIn("invoice_enabled", activation.data)[m
+[32m+[m[32m        self.assertEqual(preview.status_code, 403)[m
+[32m+[m[32m        denied_order = self.paid_order("entitlement-denied")[m
+[32m+[m[32m        self.assertIsNone(denied_order.tax_rate)[m
+[32m+[m[32m        self.assertEqual(denied_order.tax_amount, Decimal("0.00"))[m
+[32m+[m[32m        with self.assertRaisesRegex(InvoiceError, "not included"):[m
+[32m+[m[32m            issue_invoice(denied_order)[m
+[32m+[m
+     def test_arabic_invoice_uses_embedded_unicode_font_and_renders(self):[m
+         invoice, _ = issue_invoice(self.paid_order())[m
+         invoice.snapshot["locale"] = "ar"[m
+[36m@@ -105,6 +132,7 @@[m [mclass InvoiceTests(TestCase):[m
+         first, _ = issue_invoice(self.paid_order("first-store"))[m
+ [m
+         other, section = make_store(slug="second-logo-store")[m
+[32m+[m[32m        StoreMember.objects.create(user=self.owner, store=other, role=StoreMember.Roles.OWNER)[m
+         product, variant = make_product(other, section, ref="second-logo-product", price=Decimal("80.00"), quantity=2)[m
+         StoreConfig.objects.filter(store=other).update([m
+             invoice_enabled=True, invoice_legal_name="Second Merchant", invoice_billing_address="Rabat",[m
+[1mdiff --git a/orders/views.py b/orders/views.py[m
+[1mindex 724a646..b4d9495 100644[m
+[1m--- a/orders/views.py[m
+[1m+++ b/orders/views.py[m
+[36m@@ -10,6 +10,7 @@[m [mfrom django.utils import timezone[m
+ [m
+ from django.core.serializers.json import DjangoJSONEncoder[m
+ from rest_framework import generics, status[m
+[32m+[m[32mfrom rest_framework.exceptions import PermissionDenied[m
+ from rest_framework.permissions import AllowAny, IsAuthenticated[m
+ from rest_framework.response import Response[m
+ from rest_framework.views import APIView[m
+[36m@@ -401,6 +402,11 @@[m [mclass MerchantInvoicePreviewView(APIView):[m
+     def get(self, request, store_id):[m
+         store = generics.get_object_or_404(_merchant_stores(request.user), pk=store_id)[m
+         require_permission(request.user, store, "settings.view")[m
+[32m+[m[32m        from subscriptions.entitlements import owner_has_store_entitlement[m
+[32m+[m[32m        from subscriptions.policies import INVOICING_KEY[m
+[32m+[m
+[32m+[m[32m        if not owner_has_store_entitlement(store, INVOICING_KEY):[m
+[32m+[m[32m            raise PermissionDenied("Invoice issuance is not included in the store owner's current plan.")[m
+         config = StoreConfig.objects.get(store=store)[m
+         subtotal = Decimal("100.00")[m
+         shipping = Decimal(str(config.shipping_fee))[m
+[1mdiff --git a/store/serializers.py b/store/serializers.py[m
+[1mindex 65e4b4c..c65c64a 100644[m
+[1m--- a/store/serializers.py[m
+[1m+++ b/store/serializers.py[m
+[36m@@ -264,6 +264,14 @@[m [mclass StoreConfigSerializer(serializers.ModelSerializer):[m
+     def validate(self, attrs):[m
+         attrs = super().validate(attrs)[m
+         current = self.instance[m
+[32m+[m[32m        if attrs.get("invoice_enabled") is True and current and not current.invoice_enabled:[m
+[32m+[m[32m            from subscriptions.entitlements import owner_has_store_entitlement[m
+[32m+[m[32m            from subscriptions.policies import INVOICING_KEY[m
+[32m+[m
+[32m+[m[32m            if not owner_has_store_entitlement(self.context["store"], INVOICING_KEY):[m
+[32m+[m[32m                raise serializers.ValidationError({[m
+[32m+[m[32m                    "invoice_enabled": "Invoice issuance is not included in the store owner's current plan."[m
+[32m+[m[32m                })[m
+         currency = attrs.get("currency", current.currency if current else "")[m
+         free_enabled = attrs.get("free_shipping_enabled", current.free_shipping_enabled if current else False)[m
+         threshold = attrs.get("free_shipping_threshold", current.free_shipping_threshold if current else None)[m
+[1mdiff --git a/subscriptions/policies.py b/subscriptions/policies.py[m
+[1mindex 5ad6605..123b9f2 100644[m
+[1m--- a/subscriptions/policies.py[m
+[1m+++ b/subscriptions/policies.py[m
+[36m@@ -17,6 +17,7 @@[m [mTEAM_LIMIT_KEY = "team.max_members"[m
+ PRODUCT_LIMIT_KEY = "catalog.max_products"[m
+ CUSTOM_DOMAIN_KEY = "domains.custom"[m
+ REMOVE_BRANDING_KEY = "branding.remove_platform"[m
+[32m+[m[32mINVOICING_KEY = "invoicing.issue"[m
+ ANALYTICS_LEVEL_KEY = "analytics.level"[m
+ EMAIL_SEND_LIMIT_KEY = "marketing.email_monthly_sends"[m
+ MARKETING_AUTOMATION_KEY = "marketing.automation"[m
+[36m@@ -244,6 +245,26 @@[m [mBUSINESS_RULES = {[m
+             "هوية التاجر فقط", "إزالة الإشارة إلى TijaraGO من واجهة المتجر الموجهة للعملاء.",[m
+         ),[m
+     ),[m
+[32m+[m[32m    INVOICING_KEY: BusinessRuleTemplate([m
+[32m+[m[32m        key=INVOICING_KEY,[m
+[32m+[m[32m        name="Invoice issuance",[m
+[32m+[m[32m        description="Create, render, and deliver compliant customer invoices.",[m
+[32m+[m[32m        value_type="boolean",[m
+[32m+[m[32m        scope="store",[m
+[32m+[m[32m        unit="",[m
+[32m+[m[32m        kind="feature_access",[m
+[32m+[m[32m        default_value=False,[m
+[32m+[m[32m        sort_order=32,[m
+[32m+[m[32m        operation="invoicing.issue",[m
+[32m+[m[32m        counting_rules="Boolean access is resolved from the owner subscription covering the selected store.",[m
+[32m+[m[32m        zero_behavior="False denies invoice activation, preview, and new invoice issuance.",[m
+[32m+[m[32m        downgrade_behavior="Issued invoices remain available; new invoice issuance is denied.",[m
+[32m+[m[32m        translations=_copy([m
+[32m+[m[32m            "Invoice issuance", "Create, render, and deliver customer invoices.",[m
+[32m+[m[32m            "Émission de factures", "Créez, générez et envoyez des factures aux clients.",[m
+[32m+[m[32m            "إصدار الفواتير", "إنشاء فواتير العملاء وتجهيزها وإرسالها.",[m
+[32m+[m[32m        ),[m
+[32m+[m[32m    ),[m
+     ANALYTICS_LEVEL_KEY: BusinessRuleTemplate([m
+         key=ANALYTICS_LEVEL_KEY, name="Analytics", description="Essential covers 30-day commerce health; Standard adds a 90-day conversion funnel, product performance and search demand; Advanced adds annual comparisons, source attribution and opportunity alerts.",[m
+         value_type="choice", scope="account", unit="", kind="service_level", default_value="essential",[m
+[1mdiff --git a/subscriptions/progression.py b/subscriptions/progression.py[m
+[1mindex 5b345cf..5c6cf92 100644[m
+[1m--- a/subscriptions/progression.py[m
+[1m+++ b/subscriptions/progression.py[m
+[36m@@ -11,6 +11,7 @@[m [mfrom .policies import ([m
+     CATALOG_IMPORT_KEY,[m
+     CUSTOM_DOMAIN_KEY,[m
+     EMAIL_SEND_LIMIT_KEY,[m
+[32m+[m[32m    INVOICING_KEY,[m
+     PREMIUM_DESIGNS_KEY,[m
+     PRODUCT_LIMIT_KEY,[m
+     REMOVE_BRANDING_KEY,[m
+[36m@@ -28,6 +29,7 @@[m [mPROGRESSION_KEYS = ([m
+     PREMIUM_DESIGNS_KEY,[m
+     CUSTOM_DOMAIN_KEY,[m
+     REMOVE_BRANDING_KEY,[m
+[32m+[m[32m    INVOICING_KEY,[m
+     ANALYTICS_LEVEL_KEY,[m
+     EMAIL_SEND_LIMIT_KEY,[m
+ )[m
+[1mdiff --git a/subscriptions/tests.py b/subscriptions/tests.py[m
+[1mindex fef8151..6074ab1 100644[m
+[1m--- a/subscriptions/tests.py[m
+[1m+++ b/subscriptions/tests.py[m
+[36m@@ -65,6 +65,12 @@[m [mclass CommercialCatalogRecoveryTests(TestCase):[m
+         self.assertIn("Owned stores", stores["counting_rules"])[m
+         marketing = next(item for item in benefits if item["key"] == "marketing.email_monthly_sends")[m
+         self.assertEqual(marketing["reset_window"], "rolling 30 days")[m
+[32m+[m[32m        invoicing = EntitlementDefinition.objects.get(key="invoicing.issue")[m
+[32m+[m[32m        self.assertEqual(invoicing.scope, "store")[m
+[32m+[m[32m        self.assertFalse([m
+[32m+[m[32m            PlanEntitlement.objects.get(plan=free, definition=invoicing).value[m
+[32m+[m[32m        )[m
+[32m+[m[32m        self.assertEqual(BUSINESS_RULES["invoicing.issue"].operation, "invoicing.issue")[m
+ [m
+     def test_explicit_free_membership_tracks_live_free_plan_configuration(self):[m
+         user = User.objects.create_user([m
