@@ -25,6 +25,7 @@ from theme_previewer.presets import apply_demo_preset
 from theme_previewer.tickets import validate_preview_ticket
 from subscriptions.entitlements import owner_has_store_entitlement
 from subscriptions.policies import REMOVE_BRANDING_KEY
+from subscriptions.access import store_has_active_subscription
 from store.seo import storefront_seo_policy
 
 from .serializers import derive_palette
@@ -131,6 +132,16 @@ class StorefrontConfigView(APIView):
                 {"code": "preview_access_denied", "detail": "This preview session is unavailable."},
                 status=403,
                 headers={"Cache-Control": "no-store"},
+            )
+        if not demo_profile and not store_has_active_subscription(store):
+            return Response(
+                {
+                    "code": "storefront_temporarily_unavailable",
+                    "detail": "This store is temporarily unavailable.",
+                    "storeName": store.name,
+                },
+                status=402,
+                headers={"Cache-Control": "no-store", "Vary": "X-Store-Slug"},
             )
         pages = ensure_default_storefront_pages(store)
         # Derive access from live subscriptions on every cache miss. This both

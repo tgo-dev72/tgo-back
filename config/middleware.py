@@ -3,6 +3,15 @@
 from django.conf import settings
 from django.middleware.csrf import CsrfViewMiddleware
 
+
+PUBLIC_STOREFRONT_API_PREFIXES = (
+    "/api/storefront/",
+    "/api/catalog/sections/",
+    "/api/catalog/products/",
+    "/api/orders/",
+    "/api/analytics/events/",
+)
+
 from .origins import custom_origin_matches_request, is_local_development_origin
 
 
@@ -35,4 +44,21 @@ class StorefrontOriginBindingMiddleware:
         if store_id and request.method != "OPTIONS" and not custom_origin_matches_request(request):
             from django.http import JsonResponse
             return JsonResponse({"detail": "Storefront origin does not match this store."}, status=403)
+        if request.method != "OPTIONS" and request.path.startswith(PUBLIC_STOREFRONT_API_PREFIXES):
+            from accounts.cookies import resolve_tenant
+            from django.http import JsonResponse
+            from store.models import Store
+            from subscriptions.access import store_has_active_subscription
+
+            slug = resolve_tenant(request)
+            store = Store.objects.filter(slug=slug).first() if slug else None
+            if store is not None and not hasattr(store, "theme_demo_profile") and not store_has_active_subscription(store):
+                response = JsonResponse({
+                    "code": "storefront_temporarily_unavailable",
+                    "detail": "This store is temporarily unavailable.",
+                    "storeName": store.name,
+                }, status=402)
+                response["Cache-Control"] = "no-store"
+                response["Vary"] = "X-Store-Slug"
+                return response
         return self.get_response(request)

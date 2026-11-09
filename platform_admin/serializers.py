@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from subscriptions.serializers import EntitlementDefinitionSerializer, SubscriptionPlanSerializer
-from .models import PLATFORM_SOCIAL_CHANNELS, PlatformMonitoringSettings, PlatformPresentation
+from .models import PLATFORM_SOCIAL_CHANNELS, PlatformCommerceSettings, PlatformMonitoringSettings, PlatformPresentation
 from .staff_roles import ROLE_CATALOG
 
 
@@ -50,6 +50,13 @@ class PlatformMonitoringSettingsSerializer(serializers.ModelSerializer):
         if value not in {15, 30, 60, 180, 360, 720, 1440}:
             raise serializers.ValidationError("Choose a supported reminder interval.")
         return value
+
+
+class PlatformCommerceSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PlatformCommerceSettings
+        fields = ("free_trial_days", "updated_at")
+        read_only_fields = ("updated_at",)
 
 
 class StaffCreateSerializer(serializers.Serializer):
@@ -105,6 +112,6 @@ class AdminUserUpdateSerializer(serializers.Serializer):
         return email
 
 __all__ = [
-    "AdminUserUpdateSerializer", "EntitlementDefinitionSerializer", "PlatformMonitoringSettingsSerializer", "PlatformPresentationSerializer", "StaffCreateSerializer",
+    "AdminUserUpdateSerializer", "EntitlementDefinitionSerializer", "PlatformCommerceSettingsSerializer", "PlatformMonitoringSettingsSerializer", "PlatformPresentationSerializer", "StaffCreateSerializer",
     "StaffUpdateSerializer", "SubscriptionPlanSerializer",
 ]

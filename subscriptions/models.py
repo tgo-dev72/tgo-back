@@ -289,6 +289,29 @@ class UserSubscription(models.Model):
         return f"{self.user.email}: {self.status}"
 
 
+class SubscriptionLifecycleNotice(models.Model):
+    class Event(models.TextChoices):
+        SEVEN_DAYS = "seven_days", "Seven days before expiry"
+        THREE_DAYS = "three_days", "Three days before expiry"
+        EXPIRED = "expired", "Pack expired"
+
+    subscription = models.ForeignKey(
+        UserSubscription, on_delete=models.CASCADE, related_name="lifecycle_notices",
+    )
+    period_end = models.DateTimeField()
+    event = models.CharField(max_length=16, choices=Event.choices)
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["subscription", "period_end", "event"],
+                name="uniq_subscription_period_notice",
+            ),
+        ]
+        ordering = ["-sent_at"]
+
+
 class SubscriptionCreditAccount(models.Model):
     """Materialized merchant credit balance; entries below remain the audit truth."""
 

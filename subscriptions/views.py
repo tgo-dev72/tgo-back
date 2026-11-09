@@ -23,6 +23,7 @@ from payments.gateways.availability import available_platform_gateways, effectiv
 from .models import EntitlementDefinition, PlanEntitlement, SubscriptionCreditAccount, SubscriptionPayment, SubscriptionPlan, UserSubscription
 from .serializers import CheckoutSerializer, SubscriptionPlanSerializer
 from .services import InvalidSubscriptionWebhook, PaymentCaptureError, PendingCheckoutConflict, ProviderVerificationUnavailable, SubscriptionError, capture_subscription_payment, create_subscription_checkout, ensure_free_subscription, expire_stale_subscription_checkouts, handle_subscription_webhook, refresh_expired_subscription, verify_provider_transaction
+from .access import user_has_active_subscription
 
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,7 @@ class SubscriptionStatusView(APIView):
             reverse=True,
         )
         subscription = subscriptions[0] if subscriptions else None
+        access_allowed = user_has_active_subscription(request.user)
         latest_payment = SubscriptionPayment.objects.filter(user=request.user).first()
         requested_payment = None
         payment_id = request.query_params.get("payment_id", "").strip()
@@ -117,6 +119,10 @@ class SubscriptionStatusView(APIView):
             except (ValueError, TypeError):
                 requested_payment = None
         return Response({
+            "access": {
+                "allowed": access_allowed,
+                "code": None if access_allowed else "subscription_required",
+            },
             "subscription": _subscription_payload(subscription),
             "subscriptions": [_subscription_payload(item) for item in subscriptions],
             "latest_payment": _payment_payload(latest_payment),

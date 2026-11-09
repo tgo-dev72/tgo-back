@@ -40,9 +40,9 @@ from storefront_factory.release_status import approved_release_revision, storefr
 from subscriptions.models import EntitlementDefinition, PlanEntitlement, SubscriptionPayment, SubscriptionPlan, UserSubscription
 from subscriptions.entitlements import configure_plan_entitlements
 from subscriptions.policies import business_rule_catalog
-from .models import PlatformMonitoringSettings, PlatformPresentation, UserAdministrationEvent
+from .models import PlatformCommerceSettings, PlatformMonitoringSettings, PlatformPresentation, UserAdministrationEvent
 from .monitoring import collect_operational_incidents, dispatch_monitoring_alert, send_monitoring_test
-from .serializers import AdminUserUpdateSerializer, EntitlementDefinitionSerializer, PlatformMonitoringSettingsSerializer, PlatformPresentationSerializer, StaffCreateSerializer, StaffUpdateSerializer, SubscriptionPlanSerializer
+from .serializers import AdminUserUpdateSerializer, EntitlementDefinitionSerializer, PlatformCommerceSettingsSerializer, PlatformMonitoringSettingsSerializer, PlatformPresentationSerializer, StaffCreateSerializer, StaffUpdateSerializer, SubscriptionPlanSerializer
 from .staff_roles import (
     PERMISSION_CATALOG,
     assign_staff_role,
@@ -148,6 +148,21 @@ class PlatformMonitoringSettingsView(StaffAPIView):
         return Response(payload)
 
 
+class PlatformCommerceSettingsView(StaffAPIView):
+    def get(self, request):
+        self.require_permission(request, "subscriptions.view_subscriptionplan")
+        return Response(PlatformCommerceSettingsSerializer(PlatformCommerceSettings.load()).data)
+
+    def patch(self, request):
+        if not request.user.has_perm("subscriptions.change_subscriptionplan"):
+            raise PermissionDenied("Pricing changes require the subscription-plan permission.")
+        record = PlatformCommerceSettings.load()
+        serializer = PlatformCommerceSettingsSerializer(record, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(updated_by=request.user)
+        return Response(serializer.data)
+
+
 class PlatformMonitoringTestView(StaffAPIView):
     def post(self, request):
         if not request.user.is_superuser:
@@ -174,6 +189,21 @@ class PlatformMonitoringCronView(APIView):
             return Response({"detail": "Unauthorized."}, status=401)
         result = dispatch_monitoring_alert()
         return Response(result, status=200 if result.get("delivered") is not False or result["status"] in {"healthy", "unchanged", "disabled"} else 502)
+
+
+class SubscriptionLifecycleCronView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        supplied = request.headers.get("Authorization", "").removeprefix("Bearer ")
+        if not settings.CRON_SECRET:
+            return Response({"detail": "Subscription lifecycle cron is not configured."}, status=503)
+        import hmac
+        if not hmac.compare_digest(supplied, settings.CRON_SECRET):
+            return Response({"detail": "Unauthorized."}, status=401)
+        from subscriptions.lifecycle import dispatch_subscription_lifecycle_notices
+        return Response(dispatch_subscription_lifecycle_notices())
 
 
 class AdminSessionView(StaffAPIView):

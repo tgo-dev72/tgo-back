@@ -98,6 +98,18 @@ class OwnerCookieJWTAuthentication(ScopedCookieJWTAuthentication):
     def authorized(self, user, token, tenant=None):
         return has_merchant_access(user)
 
+    def authenticate(self, request):
+        result = super().authenticate(request)
+        if result is None:
+            return None
+        user, token = result
+        recovery_prefixes = ("/api/subscriptions/", "/api/auth/", "/accounts/")
+        shell_store_list = request.method == "GET" and request.path == "/api/store/"
+        if not request.path.startswith(recovery_prefixes) and not shell_store_list:
+            from subscriptions.access import enforce_merchant_subscription
+            enforce_merchant_subscription(user, request)
+        return user, token
+
 
 class ClientCookieJWTAuthentication(ScopedCookieJWTAuthentication):
     """Storefront customer — reads a neutral tenant-isolated cookie slot."""

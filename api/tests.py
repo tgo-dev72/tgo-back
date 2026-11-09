@@ -31,6 +31,7 @@ from storefront_factory.services import InfrastructureCleanupError
 from api.serializers import DesignSerializer
 from api.views import RequestEventsView
 from subscriptions.models import SubscriptionPayment, SubscriptionPlan, UserSubscription
+from subscriptions.services import ensure_free_subscription
 
 
 def _set_jwt_cookie(client, user):
@@ -139,6 +140,10 @@ class DesignSerializerTests(TestCase):
 class StorefrontConfigViewTests(TestCase):
     def setUp(self):
         self.store = Store.objects.create(slug="acme", name="Acme Store")
+        self.owner = AuthUser.objects.create_user(email="acme-owner@example.test", password="pass")
+        MerchantProfile.objects.create(user=self.owner)
+        StoreMember.objects.create(user=self.owner, store=self.store, role=StoreMember.Roles.OWNER)
+        ensure_free_subscription(self.owner)
         self.config, _ = StoreConfig.objects.get_or_create(store=self.store)
         self.config.design = "basic"
         self.config.contact_email = "hello@acme.test"
@@ -166,6 +171,32 @@ class StorefrontConfigViewTests(TestCase):
             "support_phone", "whatsapp_phone", "social_links", "homepage_product_source",
             "homepage_product_limit", "appearance",
         ])
+
+    def test_expired_owner_pack_returns_storefront_maintenance_contract(self):
+        UserSubscription.objects.filter(user=self.owner, status="active").update(
+            status="expired", current_period_end=timezone.now() - timedelta(seconds=1),
+        )
+        response = self.client.get("/api/storefront/config/", HTTP_X_STORE_SLUG="acme")
+        self.assertEqual(response.status_code, 402)
+        self.assertEqual(response.json()["code"], "storefront_temporarily_unavailable")
+        self.assertEqual(response.json()["storeName"], "Acme Store")
+        self.assertEqual(response["Cache-Control"], "no-store")
+
+        catalog = self.client.get("/api/catalog/products/", HTTP_X_STORE_SLUG="acme")
+        self.assertEqual(catalog.status_code, 402)
+        self.assertEqual(catalog.json()["code"], "storefront_temporarily_unavailable")
+
+    def test_expired_merchant_is_blocked_outside_billing_and_auth(self):
+        UserSubscription.objects.filter(user=self.owner, status="active").update(
+            status="expired", current_period_end=timezone.now() - timedelta(seconds=1),
+        )
+        _set_jwt_cookie(self.client, self.owner)
+        blocked = self.client.get(f"/api/store/{self.store.pk}/config/")
+        billing = self.client.get("/api/subscriptions/status")
+        self.assertEqual(blocked.status_code, 402)
+        self.assertEqual(blocked.json()["code"], "subscription_required")
+        self.assertEqual(billing.status_code, 200)
+        self.assertFalse(billing.json()["access"]["allowed"])
 
     def test_resolves_store_via_x_store_slug_header(self):
         resp = self.client.get("/api/storefront/config/", HTTP_X_STORE_SLUG="acme")
@@ -279,9 +310,7 @@ class StorefrontConfigViewTests(TestCase):
         self.assertIn("s-maxage", resp.headers["Cache-Control"])
 
     def test_appearance_patch_is_normalized_and_rejects_unknown_values(self):
-        owner = AuthUser.objects.create_user(email="appearance@acme.test", password="pass12345")
-        StoreMember.objects.create(store=self.store, user=owner, role=StoreMember.Roles.OWNER)
-        _set_jwt_cookie(self.client, owner)
+        _set_jwt_cookie(self.client, self.owner)
 
         accepted = self.client.patch(
             f"/api/store/{self.store.pk}/config/",
@@ -340,11 +369,10 @@ class StorefrontConfigViewTests(TestCase):
         self.assertEqual(resp.json()["design"], "basic")
 
     def test_premium_plan_can_render_premium_design(self):
-        owner = AuthUser.objects.create_user(email="premium@acme.test", password="pass12345")
-        StoreMember.objects.create(store=self.store, user=owner, role=StoreMember.Roles.OWNER)
+        UserSubscription.objects.filter(user=self.owner).update(status=UserSubscription.Status.CANCELED)
         plan = SubscriptionPlan.objects.get(slug="premium")
         UserSubscription.objects.create(
-            user=owner, plan=plan, status=UserSubscription.Status.ACTIVE,
+            user=self.owner, plan=plan, status=UserSubscription.Status.ACTIVE,
             current_period_end=timezone.now() + timedelta(days=30),
             entitlement_scope=SubscriptionPlan.EntitlementScope.ALL_OWNED_STORES,
             grants_premium_designs=True,
@@ -365,11 +393,10 @@ class StorefrontConfigViewTests(TestCase):
         self.assertEqual(resp.json()["design"], "basic")
 
     def test_existing_premium_store_keeps_legacy_design(self):
-        owner = AuthUser.objects.create_user(email="legacy-premium@acme.test", password="pass12345")
-        StoreMember.objects.create(store=self.store, user=owner, role=StoreMember.Roles.OWNER)
+        UserSubscription.objects.filter(user=self.owner).update(status=UserSubscription.Status.CANCELED)
         plan = SubscriptionPlan.objects.get(slug="premium")
         UserSubscription.objects.create(
-            user=owner, plan=plan, status=UserSubscription.Status.ACTIVE,
+            user=self.owner, plan=plan, status=UserSubscription.Status.ACTIVE,
             current_period_end=timezone.now() + timedelta(days=30),
             entitlement_scope=SubscriptionPlan.EntitlementScope.ALL_OWNED_STORES,
             grants_premium_designs=True,

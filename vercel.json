@@ -54,6 +54,10 @@
     {
       "path": "/api/internal/platform-monitoring/",
       "schedule": "55 0 * * *"
+    },
+    {
+      "path": "/api/internal/subscription-lifecycle/",
+      "schedule": "0 * * * *"
     }
   ],
   "routes": [

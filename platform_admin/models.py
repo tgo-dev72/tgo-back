@@ -3,6 +3,7 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
@@ -78,6 +79,37 @@ class PlatformMonitoringSettings(models.Model):
 
     class Meta:
         verbose_name = "platform monitoring settings"
+
+    def save(self, *args, **kwargs):
+        self.singleton_key = 1
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls):
+        return cls.objects.filter(singleton_key=1).first() or cls(singleton_key=1)
+
+
+class PlatformCommerceSettings(models.Model):
+    """Singleton commercial policy applied when a merchant starts Free."""
+
+    singleton_key = models.PositiveSmallIntegerField(default=1, unique=True, editable=False)
+    free_trial_days = models.PositiveIntegerField(
+        default=14,
+        validators=[MinValueValidator(1), MaxValueValidator(365)],
+        help_text="Number of days a newly granted Free trial remains usable.",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="platform_commerce_updates",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "platform commerce settings"
 
     def save(self, *args, **kwargs):
         self.singleton_key = 1

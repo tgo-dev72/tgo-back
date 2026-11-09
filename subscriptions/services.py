@@ -67,11 +67,10 @@ class PaymentCaptureError(SubscriptionError):
 
 @transaction.atomic
 def ensure_free_subscription(user, now=None):
-    """Idempotently give an eligible merchant explicit Free membership.
+    """Idempotently grant the merchant's one expiring Free trial.
 
-    A current paid account-wide membership always wins. Free has no period end
-    and reads the live Free plan configuration rather than freezing a paid
-    purchase snapshot.
+    A current paid account-wide membership always wins. Once Free expires it
+    stays expired; status polling must never mint another trial.
     """
     now = now or timezone.now()
     user = get_user_model().objects.select_for_update().get(pk=user.pk)
@@ -91,15 +90,29 @@ def ensure_free_subscription(user, now=None):
     if paid is not None:
         return paid
 
+    subscription = scoped.filter(plan=free_plan).order_by("-id").first()
+    if subscription is not None and subscription.current_period_end is not None:
+        if subscription.current_period_end <= now:
+            if subscription.status == UserSubscription.Status.ACTIVE:
+                subscription.status = UserSubscription.Status.EXPIRED
+                subscription.save(update_fields=["status", "updated_at"])
+                sync_user_entitlements(subscription)
+            return subscription
+        if subscription.status == UserSubscription.Status.ACTIVE:
+            return subscription
+        # Free is a one-time trial. Canceled/expired rows are not reactivated.
+        return subscription
+
     # Invalid or elapsed paid rows must not conflict with the conditional
     # uniqueness constraint for the new active Free membership.
     scoped.exclude(plan=free_plan).filter(status=UserSubscription.Status.ACTIVE).update(
         status=UserSubscription.Status.EXPIRED,
         updated_at=now,
     )
-    subscription = scoped.filter(plan=free_plan).order_by("-id").first()
     if subscription is None:
         subscription = UserSubscription(user=user, plan=free_plan)
+    from platform_admin.models import PlatformCommerceSettings
+    trial_days = PlatformCommerceSettings.load().free_trial_days
     scoped.exclude(pk=subscription.pk).filter(status=UserSubscription.Status.ACTIVE).update(
         status=UserSubscription.Status.CANCELED,
         updated_at=now,
@@ -108,7 +121,7 @@ def ensure_free_subscription(user, now=None):
     subscription.selected_store = None
     subscription.status = UserSubscription.Status.ACTIVE
     subscription.started_at = subscription.started_at or now
-    subscription.current_period_end = None
+    subscription.current_period_end = now + timedelta(days=trial_days)
     subscription.cancel_at_period_end = False
     subscription.entitlement_scope = SubscriptionPlan.EntitlementScope.ALL_OWNED_STORES
     subscription.grants_premium_designs = False

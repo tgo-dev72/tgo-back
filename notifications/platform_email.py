@@ -88,6 +88,53 @@ def send_platform_email(*, to, subject, headers=None, **content):
         return False
 
 
+def send_subscription_lifecycle_notice(subscription, event):
+    """Warn a merchant before expiry and explain the storefront pause at expiry."""
+    user = subscription.user
+    profile = getattr(user, "merchant_profile", None)
+    language = getattr(profile, "preferred_language", "en")
+    plan_name = subscription.plan.name if subscription.plan else "TijaraGO"
+    dashboard_url = settings.MERCHANT_DASHBOARD_URL.rstrip("/") + "/subscription"
+    copies = {
+        "en": {
+            "seven_days": ("Your pack expires in 7 days", "Keep your store available", "Your current pack is approaching its deadline. Renew now to keep your dashboard and customer storefront available without interruption."),
+            "three_days": ("Only 3 days left on your pack", "Your store needs a renewal", "Your pack expires in three days. Complete payment now to avoid pausing merchant features and your public storefront."),
+            "expired": ("Your pack has expired", "Your store is temporarily unavailable", "Your pack ended without a confirmed renewal. Merchant features and the customer storefront are paused until you choose and pay for a pack."),
+            "action": "Choose a pack", "pack": "Pack",
+        },
+        "fr": {
+            "seven_days": ("Votre forfait expire dans 7 jours", "Gardez votre boutique disponible", "Votre forfait arrive à échéance. Renouvelez-le maintenant pour garder le tableau de bord et la boutique accessibles sans interruption."),
+            "three_days": ("Il ne reste que 3 jours", "Votre boutique doit être renouvelée", "Votre forfait expire dans trois jours. Effectuez le paiement maintenant pour éviter la suspension des fonctions et de la boutique publique."),
+            "expired": ("Votre forfait a expiré", "Votre boutique est temporairement indisponible", "Votre forfait a pris fin sans renouvellement confirmé. Les fonctions marchandes et la boutique publique sont suspendues jusqu’au paiement d’un forfait."),
+            "action": "Choisir un forfait", "pack": "Forfait",
+        },
+        "ar": {
+            "seven_days": ("ستنتهي باقتك خلال 7 أيام", "حافظ على متجرك متاحًا", "اقترب موعد انتهاء باقتك الحالية. جدّد الآن للحفاظ على لوحة التحكم والمتجر متاحين دون انقطاع."),
+            "three_days": ("بقيت 3 أيام فقط", "متجرك يحتاج إلى التجديد", "ستنتهي باقتك خلال ثلاثة أيام. أكمل الدفع الآن لتجنب إيقاف ميزات التاجر والمتجر العام."),
+            "expired": ("انتهت صلاحية باقتك", "متجرك غير متاح مؤقتًا", "انتهت باقتك دون تأكيد التجديد. تم إيقاف ميزات التاجر والمتجر العام إلى أن تختار باقة وتدفع ثمنها."),
+            "action": "اختيار باقة", "pack": "الباقة",
+        },
+    }
+    copy = copies.get(language, copies["en"])
+    subject, title, paragraph = copy[event]
+    return send_platform_email(
+        to=user.email,
+        subject=subject,
+        preheader=paragraph,
+        eyebrow="TijaraGO",
+        title=title,
+        recipient_name=user.first_name.strip() if user.first_name else "",
+        paragraphs=[paragraph],
+        details=[{"label": copy["pack"], "value": plan_name}],
+        action_url=dashboard_url,
+        action_label=copy["action"],
+        language=language,
+        logo_url=settings.MERCHANT_EMAIL_LOGO_URL,
+        website_url=settings.MERCHANT_DASHBOARD_URL,
+        headers={"X-TijaraGO-Event": f"subscription.{event}"},
+    )
+
+
 def send_merchant_verification(user, verification_url):
     """Showroom-branded first step: prove ownership of the signup address."""
     name = user.first_name.strip() if user.first_name else ""

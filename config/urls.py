@@ -6,7 +6,7 @@ from django.views.static import serve
 
 from catalog.views import ProductParametersView
 from store.domain_internal_views import DomainQueueView
-from platform_admin.views import PlatformMonitoringCronView
+from platform_admin.views import PlatformMonitoringCronView, SubscriptionLifecycleCronView
 from store.public_seo_views import StorefrontMetadataView, StorefrontRobotsView, StorefrontSitemapView
 
 urlpatterns = [
@@ -22,6 +22,7 @@ urlpatterns = [
     path('db/products/parameters/get', ProductParametersView.as_view()),
     path('api/internal/storefront-domains/execute', DomainQueueView.as_view()),
     path('api/internal/platform-monitoring/', PlatformMonitoringCronView.as_view(), name='platform-monitoring-cron'),
+    path('api/internal/subscription-lifecycle/', SubscriptionLifecycleCronView.as_view(), name='subscription-lifecycle-cron'),
 ]
 
 if settings.DEBUG:

@@ -13,15 +13,10 @@ from .policies import PREMIUM_DESIGNS_KEY
 def active_subscription_period_q(now=None):
     """The single definition of an effective subscription period.
 
-    Paid access has an expiration timestamp. The protected Free plan is an
-    explicit, non-expiring membership represented by a null period end.
+    Every pack, including Free, has an expiration timestamp.
     """
     now = now or timezone.now()
-    free_plan_id = SubscriptionPlan.objects.filter(slug="free").values_list("id", flat=True).first()
-    period = Q(current_period_end__gt=now)
-    if free_plan_id is not None:
-        period |= Q(plan_id=free_plan_id, current_period_end__isnull=True)
-    return Q(status=UserSubscription.Status.ACTIVE) & period
+    return Q(status=UserSubscription.Status.ACTIVE, current_period_end__gt=now)
 
 
 def normalize_entitlement_value(definition, value):

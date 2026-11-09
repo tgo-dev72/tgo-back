@@ -256,7 +256,7 @@ class CookieAuthenticationSecurityTests(TestCase):
         free_subscription = UserSubscription.objects.get(user=user, status=UserSubscription.Status.ACTIVE)
         self.assertEqual(free_subscription.plan.slug, "free")
         self.assertEqual(free_subscription.entitlement_scope, "all_owned_stores")
-        self.assertIsNone(free_subscription.current_period_end)
+        self.assertGreater(free_subscription.current_period_end, timezone.now())
         self.assertEqual(free_subscription.entitlements_snapshot, {})
         self.assertEqual(len(mail.outbox), 2)
         ready_email = mail.outbox[-1]

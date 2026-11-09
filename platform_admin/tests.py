@@ -17,7 +17,7 @@ from storefront_factory.deployment_state import record_deployment_state
 from subscriptions.entitlements import resolve_entitlement
 from subscriptions.models import EntitlementDefinition, PlanEntitlement, PlanRevision, SubscriptionPayment, SubscriptionPlan, UserSubscription
 from platform_admin.staff_roles import GROUP_PREFIX
-from platform_admin.models import PlatformMonitoringSettings, PlatformPresentation, UserAdministrationEvent
+from platform_admin.models import PlatformCommerceSettings, PlatformMonitoringSettings, PlatformPresentation, UserAdministrationEvent
 from payments.models import PlatformPaymentGateway
 
 User = get_user_model()
@@ -49,6 +49,18 @@ class PlatformAdminAPITestsMixin:
 
 
 class PlatformAdminAuthorizationTests(PlatformAdminAPITestsMixin, TestCase):
+    def test_owner_configures_free_trial_duration(self):
+        route = reverse("platform-admin-commerce-settings")
+        self.assertEqual(self.client_for().get(route).status_code, 401)
+        denied = self.client_for(self.read_only_staff).patch(route, {"free_trial_days": 30}, format="json")
+        self.assertEqual(denied.status_code, 403)
+        invalid = self.client_for(self.staff).patch(route, {"free_trial_days": 0}, format="json")
+        self.assertEqual(invalid.status_code, 400)
+        response = self.client_for(self.staff).patch(route, {"free_trial_days": 21}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["free_trial_days"], 21)
+        self.assertEqual(PlatformCommerceSettings.load().free_trial_days, 21)
+
     @override_settings(
         PLATFORM_PAYMENT_GATEWAY="youcanpay",
         PLATFORM_PAYMENT_PRIVATE_KEY="test-private-key",
@@ -165,6 +177,17 @@ class PlatformAdminAuthorizationTests(PlatformAdminAPITestsMixin, TestCase):
         self.assertEqual(self.client_for().get(route).status_code, 401)
         response = self.client_for().get(route, HTTP_AUTHORIZATION="Bearer cron-test-secret")
         self.assertEqual(response.status_code, 200)
+        dispatch.assert_called_once_with()
+
+    @override_settings(CRON_SECRET="cron-test-secret")
+    @patch("subscriptions.lifecycle.dispatch_subscription_lifecycle_notices")
+    def test_subscription_lifecycle_cron_requires_secret_and_dispatches(self, dispatch):
+        dispatch.return_value = {"sent": 2}
+        route = reverse("subscription-lifecycle-cron")
+        self.assertEqual(self.client_for().get(route).status_code, 401)
+        response = self.client_for().get(route, HTTP_AUTHORIZATION="Bearer cron-test-secret")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {"sent": 2})
         dispatch.assert_called_once_with()
 
     def test_anonymous_cannot_open_admin_api(self):

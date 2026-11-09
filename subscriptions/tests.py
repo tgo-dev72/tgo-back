@@ -20,11 +20,13 @@ from rest_framework.test import APIClient
 from catalog.models import RetailType
 from accounts.models import MerchantProfile
 from store.models import Store, StoreConfig, StoreMember
+from platform_admin.models import PlatformCommerceSettings
 from payments.models import PlatformPaymentGateway
 
 from .entitlements import configure_plan_entitlements, resolve_entitlement
 from .bootstrap import restore_commercial_reference_data
-from .models import EntitlementDefinition, PlanEntitlement, SubscriptionCreditAccount, SubscriptionCreditEntry, SubscriptionPayment, SubscriptionPlan, SubscriptionWebhookEvent, UserSubscription
+from .models import EntitlementDefinition, PlanEntitlement, SubscriptionCreditAccount, SubscriptionCreditEntry, SubscriptionLifecycleNotice, SubscriptionPayment, SubscriptionPlan, SubscriptionWebhookEvent, UserSubscription
+from .lifecycle import dispatch_subscription_lifecycle_notices
 from .policies import BUSINESS_RULES
 from .serializers import SubscriptionPlanSerializer
 from .services import InvalidSubscriptionWebhook, SubscriptionError, _release_reserved_credit, create_subscription_checkout, ensure_free_subscription, handle_subscription_webhook, refresh_expired_subscription, verify_provider_transaction
@@ -79,6 +81,8 @@ class CommercialCatalogRecoveryTests(TestCase):
             email_verified_at=timezone.now(),
         )
         MerchantProfile.objects.create(user=user)
+        PlatformCommerceSettings.objects.create(free_trial_days=21)
+        before = timezone.now()
         subscription = ensure_free_subscription(user)
         free = subscription.plan
         store_limit = EntitlementDefinition.objects.get(key="stores.max_count")
@@ -89,9 +93,54 @@ class CommercialCatalogRecoveryTests(TestCase):
         )
 
         subscription.refresh_from_db()
-        self.assertIsNone(subscription.current_period_end)
+        self.assertGreaterEqual(subscription.current_period_end, before + timedelta(days=21))
         self.assertEqual(subscription.entitlements_snapshot, {})
         self.assertEqual(resolve_entitlement(user, "stores.max_count"), 4)
+
+    def test_expired_free_trial_is_not_reactivated_by_status_maintenance(self):
+        user = User.objects.create_user(
+            email="expired-free@example.com", password="pass", email_verified_at=timezone.now(),
+        )
+        MerchantProfile.objects.create(user=user)
+        subscription = ensure_free_subscription(user)
+        expired_at = timezone.now() - timedelta(seconds=1)
+        UserSubscription.objects.filter(pk=subscription.pk).update(current_period_end=expired_at)
+
+        refreshed = ensure_free_subscription(user)
+
+        self.assertEqual(refreshed.pk, subscription.pk)
+        self.assertEqual(refreshed.status, UserSubscription.Status.EXPIRED)
+        self.assertEqual(refreshed.current_period_end, expired_at)
+
+    @patch("notifications.platform_email.send_subscription_lifecycle_notice", return_value=True)
+    def test_lifecycle_notices_send_once_at_seven_days_three_days_and_expiry(self, send_notice):
+        user = User.objects.create_user(
+            email="notices@example.com", password="pass", email_verified_at=timezone.now(),
+        )
+        MerchantProfile.objects.create(user=user, preferred_language="en")
+        subscription = ensure_free_subscription(user)
+        now = timezone.now().replace(microsecond=0)
+
+        for remaining, expected in (
+            (timedelta(days=7), SubscriptionLifecycleNotice.Event.SEVEN_DAYS),
+            (timedelta(days=3), SubscriptionLifecycleNotice.Event.THREE_DAYS),
+            (-timedelta(seconds=1), SubscriptionLifecycleNotice.Event.EXPIRED),
+        ):
+            UserSubscription.objects.filter(pk=subscription.pk).update(
+                status=UserSubscription.Status.ACTIVE,
+                current_period_end=now + remaining,
+            )
+            dispatch_subscription_lifecycle_notices(now)
+            dispatch_subscription_lifecycle_notices(now)
+            self.assertTrue(SubscriptionLifecycleNotice.objects.filter(
+                subscription=subscription,
+                period_end=now + remaining,
+                event=expected,
+            ).exists())
+
+        self.assertEqual(send_notice.call_count, 3)
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.status, UserSubscription.Status.EXPIRED)
 
 
 class FakeTokenAPI:
@@ -495,7 +544,7 @@ class SubscriptionFlowTests(TestCase):
             status=UserSubscription.Status.ACTIVE,
         )
         self.assertEqual(free_membership.plan.slug, "free")
-        self.assertIsNone(free_membership.current_period_end)
+        self.assertGreater(free_membership.current_period_end, timezone.now())
         self.assertFalse(StoreConfig.objects.filter(store__in=[self.store_a, self.store_b]).exclude(plan=StoreConfig.Plans.FREE).exists())
 
     def test_repeated_checkout_reuses_one_payment_and_provider_token(self):
@@ -729,7 +778,7 @@ class SubscriptionFlowTests(TestCase):
 
         self.assertEqual(status_response.status_code, 200)
         self.assertEqual(status_response.data["subscription"]["plan"]["slug"], "free")
-        self.assertIsNone(status_response.data["subscription"]["current_period_end"])
+        self.assertGreater(status_response.data["subscription"]["current_period_end"], timezone.now())
         self.assertEqual(checkout_response.status_code, 201, checkout_response.data)
         self.assertTrue(SubscriptionPayment.objects.filter(user=merchant).exists())
 
