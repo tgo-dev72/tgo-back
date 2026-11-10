@@ -23,6 +23,8 @@ from payments.gateways import (
 from payments.gateways.availability import effective_platform_credentials, get_available_platform_gateway
 
 from .entitlements import active_subscription_period_q, PREMIUM_DESIGNS_KEY, owner_has_store_entitlement, plan_entitlement_snapshot
+
+EARLY_RENEWAL_WINDOW = timedelta(days=3)
 from .models import (
     SubscriptionCreditAccount,
     SubscriptionCreditEntry,
@@ -475,8 +477,12 @@ def create_subscription_checkout(
             active_subscriptions = active_subscriptions.filter(
                 entitlement_scope=SubscriptionPlan.EntitlementScope.ALL_OWNED_STORES,
             )
-        if active_subscriptions.exists():
-            raise SubscriptionError("This plan is already active for the selected subscription scope.")
+        renewal_subscription = active_subscriptions.order_by("-current_period_end", "-id").first()
+        if (
+            renewal_subscription
+            and renewal_subscription.current_period_end > now + EARLY_RENEWAL_WINDOW
+        ):
+            raise SubscriptionError("This plan can be renewed during the final three days of its current period.")
 
         current_subscription = _scoped_subscriptions(
             user, plan.entitlement_scope, selected_store,
@@ -486,6 +492,7 @@ def create_subscription_checkout(
         if (
             current_subscription
             and current_subscription.plan
+            and current_subscription.plan_id != plan.id
             and plan.price <= current_subscription.plan.price
         ):
             raise SubscriptionError(
@@ -548,6 +555,13 @@ def create_subscription_checkout(
         proration_credit, proration_snapshot = _proration_quote(
             user, plan, selected_store, quoted_at,
         )
+        if renewal_subscription:
+            proration_credit = Decimal("0.00")
+            proration_snapshot = {
+                "renewal": True,
+                "source_subscription_id": renewal_subscription.pk,
+                "period_end": renewal_subscription.current_period_end.isoformat(),
+            }
         credit_reserved = Decimal("0.00")
         if use_balance:
             credit_reserved = _reserve_available_credit(
@@ -824,10 +838,11 @@ def _activate_payment_locked(payment, transaction_id, now=None):
         payment.entitlement_scope,
         payment.selected_store_id,
     ).exists()
+    is_renewal = bool(payment.proration_snapshot.get("renewal"))
     same_active_plan = scope_subscriptions.filter(
         plan_id=payment.plan_id,
     ).filter(active_subscription_period_q(now)).exists()
-    if newer_confirmed or same_active_plan:
+    if newer_confirmed or (same_active_plan and not is_renewal):
         _release_reserved_credit(payment)
         payment.status = SubscriptionPayment.Status.DUPLICATE
         payment.provider_transaction_id = transaction_id
@@ -845,12 +860,16 @@ def _activate_payment_locked(payment, transaction_id, now=None):
     scope_subscriptions.exclude(pk=subscription.pk).filter(status=UserSubscription.Status.ACTIVE).update(
         status=UserSubscription.Status.CANCELED,
     )
+    renewal_base = None
+    if is_renewal and subscription.plan_id == payment.plan_id:
+        renewal_base = max(now, subscription.current_period_end or now)
     subscription.plan = payment.plan
     subscription.selected_store = payment.selected_store
     subscription.status = UserSubscription.Status.ACTIVE
     # Every paid plan change starts a new, independently proratable period.
-    subscription.started_at = now
-    subscription.current_period_end = now + timedelta(days=payment.duration_days)
+    if renewal_base is None:
+        subscription.started_at = now
+    subscription.current_period_end = (renewal_base or now) + timedelta(days=payment.duration_days)
     subscription.cancel_at_period_end = False
     subscription.entitlement_scope = payment.entitlement_scope
     subscription.grants_premium_designs = payment.grants_premium_designs

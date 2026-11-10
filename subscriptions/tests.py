@@ -721,6 +721,25 @@ class SubscriptionFlowTests(TestCase):
         self.assertFalse(SubscriptionPayment.objects.filter(user=self.user).exists())
         self.external_checkout_mock.assert_not_called()
 
+    def test_checkout_allows_same_plan_renewal_during_final_three_days(self):
+        period_end = timezone.now() + timedelta(days=2)
+        subscription = UserSubscription.objects.create(
+            user=self.user, plan=self.premium, status=UserSubscription.Status.ACTIVE,
+            started_at=timezone.now() - timedelta(days=28), current_period_end=period_end,
+            entitlement_scope=SubscriptionPlan.EntitlementScope.ALL_OWNED_STORES,
+            grants_premium_designs=True,
+        )
+        response = self.authenticated_client().post(
+            reverse("subscription-checkout"), {"plan_id": self.premium.id}, format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        payment = SubscriptionPayment.objects.get(pk=response.data["payment_id"])
+        self.assertTrue(payment.proration_snapshot["renewal"])
+        self.assertEqual(payment.proration_credit, Decimal("0.00"))
+        handle_subscription_webhook(payment, self.payload(payment))
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.current_period_end, period_end + timedelta(days=self.premium.duration_days))
+
     def test_checkout_rejects_untrusted_return_origin_before_tokenization(self):
         before = SubscriptionPayment.objects.count()
         response = self.authenticated_client().post(
