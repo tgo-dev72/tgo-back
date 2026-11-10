@@ -721,8 +721,8 @@ class SubscriptionFlowTests(TestCase):
         self.assertFalse(SubscriptionPayment.objects.filter(user=self.user).exists())
         self.external_checkout_mock.assert_not_called()
 
-    def test_checkout_allows_same_plan_renewal_during_final_three_days(self):
-        period_end = timezone.now() + timedelta(days=2)
+    def test_checkout_allows_same_plan_renewal_during_final_seven_days(self):
+        period_end = timezone.now() + timedelta(days=6)
         subscription = UserSubscription.objects.create(
             user=self.user, plan=self.premium, status=UserSubscription.Status.ACTIVE,
             started_at=timezone.now() - timedelta(days=28), current_period_end=period_end,

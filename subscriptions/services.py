@@ -24,7 +24,7 @@ from payments.gateways.availability import effective_platform_credentials, get_a
 
 from .entitlements import active_subscription_period_q, PREMIUM_DESIGNS_KEY, owner_has_store_entitlement, plan_entitlement_snapshot
 
-EARLY_RENEWAL_WINDOW = timedelta(days=3)
+EARLY_RENEWAL_WINDOW = timedelta(days=7)
 from .models import (
     SubscriptionCreditAccount,
     SubscriptionCreditEntry,
@@ -482,7 +482,7 @@ def create_subscription_checkout(
             renewal_subscription
             and renewal_subscription.current_period_end > now + EARLY_RENEWAL_WINDOW
         ):
-            raise SubscriptionError("This plan can be renewed during the final three days of its current period.")
+            raise SubscriptionError("This plan can be renewed during the final seven days of its current period.")
 
         current_subscription = _scoped_subscriptions(
             user, plan.entitlement_scope, selected_store,
