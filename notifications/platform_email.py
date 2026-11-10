@@ -97,22 +97,22 @@ def send_subscription_lifecycle_notice(subscription, event):
     dashboard_url = settings.MERCHANT_DASHBOARD_URL.rstrip("/") + "/subscription"
     copies = {
         "en": {
-            "seven_days": ("Your pack expires in 7 days", "Keep your store available", "Your current pack is approaching its deadline. Renew now to keep your dashboard and customer storefront available without interruption."),
-            "three_days": ("Only 3 days left on your pack", "Your store needs a renewal", "Your pack expires in three days. Complete payment now to avoid pausing merchant features and your public storefront."),
-            "expired": ("Your pack has expired", "Your store is temporarily unavailable", "Your pack ended without a confirmed renewal. Merchant features and the customer storefront are paused until you choose and pay for a pack."),
-            "action": "Choose a pack", "pack": "Pack",
+            "seven_days": ("Your pack expires in 7 days", "A friendly renewal reminder", "We would like to remind you that your current pack expires in seven days. If you would like to keep your dashboard and customer storefront available without interruption, you can renew at your convenience."),
+            "three_days": ("Your pack expires in 3 days", "A reminder about your pack", "Your current pack expires in three days. To keep your merchant features and public storefront available without interruption, you can complete your renewal whenever it is convenient for you."),
+            "expired": ("Your pack has expired", "Your store is temporarily unavailable", "Your pack ended without a confirmed renewal, so merchant features and the customer storefront are temporarily paused. When you are ready, you can choose the pack that suits you to restore access."),
+            "action": "View available packs", "pack": "Pack",
         },
         "fr": {
-            "seven_days": ("Votre forfait expire dans 7 jours", "Gardez votre boutique disponible", "Votre forfait arrive à échéance. Renouvelez-le maintenant pour garder le tableau de bord et la boutique accessibles sans interruption."),
-            "three_days": ("Il ne reste que 3 jours", "Votre boutique doit être renouvelée", "Votre forfait expire dans trois jours. Effectuez le paiement maintenant pour éviter la suspension des fonctions et de la boutique publique."),
-            "expired": ("Votre forfait a expiré", "Votre boutique est temporairement indisponible", "Votre forfait a pris fin sans renouvellement confirmé. Les fonctions marchandes et la boutique publique sont suspendues jusqu’au paiement d’un forfait."),
-            "action": "Choisir un forfait", "pack": "Forfait",
+            "seven_days": ("Votre forfait expire dans 7 jours", "Un rappel amical pour votre renouvellement", "Nous souhaitons vous rappeler que votre forfait actuel expire dans sept jours. Si vous souhaitez garder votre tableau de bord et votre boutique accessibles sans interruption, vous pouvez le renouveler au moment qui vous convient."),
+            "three_days": ("Votre forfait expire dans 3 jours", "Un rappel concernant votre forfait", "Votre forfait actuel expire dans trois jours. Pour garder vos fonctions marchandes et votre boutique publique accessibles sans interruption, vous pouvez effectuer le renouvellement au moment qui vous convient."),
+            "expired": ("Votre forfait a expiré", "Votre boutique est temporairement indisponible", "Votre forfait a pris fin sans renouvellement confirmé. Les fonctions marchandes et la boutique publique sont donc temporairement suspendues. Lorsque vous le souhaitez, vous pouvez choisir le forfait qui vous convient afin de rétablir l’accès."),
+            "action": "Voir les forfaits disponibles", "pack": "Forfait",
         },
         "ar": {
-            "seven_days": ("ستنتهي باقتك خلال 7 أيام", "حافظ على متجرك متاحًا", "اقترب موعد انتهاء باقتك الحالية. جدّد الآن للحفاظ على لوحة التحكم والمتجر متاحين دون انقطاع."),
-            "three_days": ("بقيت 3 أيام فقط", "متجرك يحتاج إلى التجديد", "ستنتهي باقتك خلال ثلاثة أيام. أكمل الدفع الآن لتجنب إيقاف ميزات التاجر والمتجر العام."),
-            "expired": ("انتهت صلاحية باقتك", "متجرك غير متاح مؤقتًا", "انتهت باقتك دون تأكيد التجديد. تم إيقاف ميزات التاجر والمتجر العام إلى أن تختار باقة وتدفع ثمنها."),
-            "action": "اختيار باقة", "pack": "الباقة",
+            "seven_days": ("ستنتهي باقتك خلال 7 أيام", "تذكير ودي بموعد التجديد", "نود تذكيرك بأن باقتك الحالية ستنتهي خلال سبعة أيام. إذا رغبت في استمرار لوحة التحكم ومتجرك دون انقطاع، يمكنك تجديد الباقة في الوقت الذي يناسبك."),
+            "three_days": ("ستنتهي باقتك خلال 3 أيام", "تذكير بموعد انتهاء الباقة", "ستنتهي باقتك الحالية خلال ثلاثة أيام. للمحافظة على ميزات التاجر والمتجر العام دون انقطاع، يمكنك إتمام التجديد في الوقت الذي يناسبك."),
+            "expired": ("انتهت صلاحية باقتك", "متجرك غير متاح مؤقتًا", "انتهت باقتك دون تأكيد التجديد، ولذلك تم إيقاف ميزات التاجر والمتجر العام مؤقتًا. عندما يناسبك، يمكنك اختيار الباقة الملائمة لاستعادة الوصول."),
+            "action": "عرض الباقات المتاحة", "pack": "الباقة",
         },
     }
     copy = copies.get(language, copies["en"])

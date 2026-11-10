@@ -1,4 +1,5 @@
 """Shared transactional email service tests (locmem backend captures mail)."""
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core import mail
@@ -19,7 +20,7 @@ from .service import (
     send_order_received,
     send_order_shipped,
 )
-from .platform_email import render_platform_email, send_platform_email
+from .platform_email import render_platform_email, send_platform_email, send_subscription_lifecycle_notice
 
 
 def make_store(slug="ntf"):
@@ -267,6 +268,30 @@ class PlatformEmailTests(TestCase):
     def test_platform_email_failure_is_non_fatal(self):
         with patch("notifications.platform_email.EmailMultiAlternatives.send", side_effect=RuntimeError("smtp down")):
             self.assertFalse(send_platform_email(to="merchant@example.test", **self.sample()))
+
+    def test_subscription_expiry_notices_use_polite_non_imperative_language(self):
+        expected = {
+            "en": ("When you are ready", "View available packs"),
+            "fr": ("Lorsque vous le souhaitez", "Voir les forfaits disponibles"),
+            "ar": ("عندما يناسبك", "عرض الباقات المتاحة"),
+        }
+        for language, (courteous_phrase, action) in expected.items():
+            with self.subTest(language=language):
+                subscription = SimpleNamespace(
+                    user=SimpleNamespace(
+                        email=f"{language}@example.test",
+                        first_name="",
+                        merchant_profile=SimpleNamespace(preferred_language=language),
+                    ),
+                    plan=SimpleNamespace(name="Starter"),
+                )
+                self.assertTrue(send_subscription_lifecycle_notice(subscription, "expired"))
+                message = mail.outbox[-1]
+                self.assertIn(courteous_phrase, message.body)
+                self.assertIn(action, message.body)
+                self.assertNotIn("تدفع ثمنها", message.body)
+                self.assertNotIn("Complete payment now", message.body)
+                self.assertNotIn("Effectuez le paiement maintenant", message.body)
 
     @override_settings(TEST_MAIL="preview@example.test")
     def test_preview_command_uses_configured_test_recipient(self):
