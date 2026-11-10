@@ -296,12 +296,19 @@ class StoreListCreateView(generics.ListCreateAPIView):
 
     def create(self, request, *args, **kwargs):
         from subscriptions.policies import EntitlementDenied
+        from subscriptions.access import SubscriptionPaymentRequired, user_has_active_subscription
+        from subscriptions.services import ensure_free_subscription
 
         if not MerchantProfile.objects.filter(user=request.user).exists():
             return Response(
                 {"detail": "Only merchant account owners can create a store."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        # Grant the one-time Free trial only to merchants with no prior trial.
+        # Expired or canceled Free subscriptions are never reactivated.
+        ensure_free_subscription(request.user)
+        if not user_has_active_subscription(request.user):
+            raise SubscriptionPaymentRequired()
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:

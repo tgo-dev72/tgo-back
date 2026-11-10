@@ -1,13 +1,17 @@
+from datetime import timedelta
 from io import StringIO
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase
+from django.utils import timezone
 from django.urls import reverse
 from rest_framework.test import APIClient
 
 from accounts.models import MerchantProfile
 from catalog.models import RetailType
+from subscriptions.models import UserSubscription
+from subscriptions.services import ensure_free_subscription
 
 from .models import Store, StoreMember
 
@@ -33,6 +37,29 @@ class StoreCreationReferenceDataTests(TestCase):
         store = Store.objects.get(slug="recovered-store")
         self.assertEqual(store.retail_type.key, "general")
         self.assertTrue(store.catalog_sections.exists())
+
+    def test_expired_merchant_cannot_create_another_store(self):
+        merchant = get_user_model().objects.create_user(
+            email="expired-store-create@example.test", password="MerchantPass123!",
+        )
+        MerchantProfile.objects.create(user=merchant, business_name="Expired merchant")
+        subscription = ensure_free_subscription(merchant)
+        UserSubscription.objects.filter(pk=subscription.pk).update(
+            status=UserSubscription.Status.EXPIRED,
+            current_period_end=timezone.now() - timedelta(seconds=1),
+        )
+        client = APIClient()
+        client.force_authenticate(merchant)
+
+        response = client.post(
+            reverse("store-list"),
+            {"name": "Blocked store", "slug": "blocked-store"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 402, response.data)
+        self.assertEqual(response.data["code"], "subscription_required")
+        self.assertFalse(Store.objects.filter(slug="blocked-store").exists())
 
 
 class SeedDemoCommandTests(TestCase):
