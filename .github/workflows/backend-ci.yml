@@ -24,6 +24,10 @@ jobs:
           node-version: "24"
           cache: npm
       - run: pip install -r requirements.txt
+      - name: Audit Python production dependencies
+        run: |
+          python -m pip install pip-audit==2.10.1
+          pip-audit -r requirements.txt
       - run: npm ci
       - name: Django checks and migration drift
         env:
