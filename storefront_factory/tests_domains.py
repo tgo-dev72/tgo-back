@@ -6,7 +6,13 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from .cloud import deploy_storefront_cloud, validate_pipeline_configuration
 from .domains import default_storefront_url
 from .services import cleanup_storefront_infrastructure
-from .vercel_deploy import DeployError, DeploymentResult, _resolve_domain, _verify_provider_domain
+from .vercel_deploy import (
+    DeployError,
+    DeploymentResult,
+    _ensure_platform_domain_verification,
+    _resolve_domain,
+    _verify_provider_domain,
+)
 
 
 @override_settings(STOREFRONT_USE_VERCEL_DOMAIN=True, STOREFRONT_BASE_DOMAIN="example.com",
@@ -15,6 +21,38 @@ from .vercel_deploy import DeployError, DeploymentResult, _resolve_domain, _veri
                    STOREFRONT_DEPLOYMENT_REPO="", STOREFRONT_DEPLOYMENT_BRANCH="main",
                    STOREFRONT_API_URL="https://api.example.com", STOREFRONT_RELEASE_REVISION="a" * 40)
 class ProviderDomainTests(SimpleTestCase):
+    @override_settings(
+        STOREFRONT_BASE_DOMAIN="tijarago.com",
+        CLOUDFLARE_API_TOKEN="cloudflare",
+        CLOUDFLARE_ZONE_ID="zone",
+    )
+    @patch("storefront_factory.vercel_deploy.requests.post")
+    @patch("storefront_factory.vercel_deploy.requests.get")
+    def test_platform_domain_verification_creates_txt_and_verifies(self, get, post):
+        get.return_value = Mock(
+            status_code=200,
+            json=Mock(return_value={"success": True, "result": []}),
+        )
+        post.side_effect = [
+            Mock(status_code=200, json=Mock(return_value={"success": True, "result": {"id": "txt"}})),
+            Mock(status_code=200, json=Mock(return_value={"verified": True})),
+        ]
+        _ensure_platform_domain_verification(
+            "demo-basic.tijarago.com",
+            "prj_basic",
+            {
+                "verified": False,
+                "verification": [{
+                    "type": "TXT",
+                    "domain": "_vercel.tijarago.com",
+                    "value": "vc-domain-verify=demo-basic.tijarago.com,proof",
+                }],
+            },
+            Mock(),
+        )
+        self.assertEqual(post.call_count, 2)
+        self.assertTrue(post.call_args_list[0].kwargs["json"]["content"].endswith(",proof"))
+
     def test_default_address_is_provider_owned_and_explicit_domain_survives(self):
         self.assertEqual(default_storefront_url("canary"), "https://canary.vercel.app")
         req = SimpleNamespace(slug="canary", domain="https://merchant.example")

@@ -390,6 +390,8 @@ def _attach_domain(hostname, project_id, log):
     )
     if resp.status_code in (200, 201):
         log(f"Attached domain {hostname} to the Vercel project")
+        attached = resp.json()
+        _ensure_platform_domain_verification(hostname, project_id, attached, log)
         return
     if resp.status_code == 409:
         verification = _vercel_read(
@@ -398,8 +400,69 @@ def _attach_domain(hostname, project_id, log):
         )
         if verification.status_code == 200:
             log(f"Domain {hostname} is already attached to this Vercel project")
+            _ensure_platform_domain_verification(
+                hostname, project_id, verification.json(), log,
+            )
             return
     raise DeployError(f"Could not attach domain {hostname} ({resp.status_code}): {resp.text[:400]}")
+
+
+def _ensure_platform_domain_verification(hostname, project_id, attached, log):
+    """Complete Vercel's ownership proof for a platform-managed hostname."""
+    if attached.get("verified") is not False:
+        return
+    base = settings.STOREFRONT_BASE_DOMAIN.strip(".").lower()
+    if not hostname.rstrip(".").lower().endswith(f".{base}"):
+        raise DeployError("Vercel requested verification for a non-platform domain.")
+    instructions = [
+        item for item in (attached.get("verification") or [])
+        if item.get("type") == "TXT" and item.get("domain") and item.get("value")
+    ]
+    if not instructions:
+        raise DeployError("Vercel did not provide a supported domain verification record.")
+
+    zone_id = _cloudflare_zone_id(log)
+    records_url = f"{CLOUDFLARE_API}/zones/{zone_id}/dns_records"
+    for instruction in instructions:
+        name = str(instruction["domain"]).rstrip(".")
+        if name.lower() != f"_vercel.{base}":
+            raise DeployError("Vercel requested an unexpected DNS verification hostname.")
+        value = str(instruction["value"])
+        lookup = requests.get(
+            records_url,
+            headers=_cloudflare_headers(),
+            params={"type": "TXT", "name": name, "per_page": 100},
+            timeout=30,
+        )
+        lookup_data = lookup.json()
+        if lookup.status_code >= 400 or not lookup_data.get("success", False):
+            raise DeployError(f"Cloudflare verification lookup failed ({lookup.status_code}).")
+        if not any(record.get("content") == value for record in lookup_data.get("result") or []):
+            created = requests.post(
+                records_url,
+                headers=_cloudflare_headers(),
+                json={"type": "TXT", "name": name, "content": value, "ttl": 60},
+                timeout=30,
+            )
+            created_data = created.json()
+            if created.status_code >= 400 or not created_data.get("success", False):
+                raise DeployError(f"Cloudflare verification record creation failed ({created.status_code}).")
+            log(f"Created Vercel ownership proof for {hostname}")
+
+    verified = None
+    for attempt in range(1, 6):
+        verified = requests.post(
+            f"{VERCEL_API}/v9/projects/{project_id}/domains/{hostname}/verify",
+            headers=_vercel_headers(), params=_vercel_params(), json={}, timeout=30,
+        )
+        if verified.status_code == 200 and verified.json().get("verified"):
+            break
+        if attempt < 5:
+            time.sleep(attempt)
+    if verified is None or verified.status_code != 200 or not verified.json().get("verified"):
+        status_code = verified.status_code if verified is not None else "unknown"
+        raise DeployError(f"Vercel domain verification failed ({status_code}).")
+    log(f"Verified domain ownership for {hostname}")
 
 
 def read_project_domain(hostname, project_id):
