@@ -75,12 +75,25 @@ class InvoiceTests(TestCase):
         response = client.patch(reverse("store-config", args=[self.store.id]), {"invoice_enabled": True}, format="json")
         self.assertEqual(response.status_code, 200)
 
-    def test_activation_requires_central_tax_percentage(self):
+    def test_activation_allows_partial_invoice_information_after_confirmation(self):
         client = APIClient(); client.force_authenticate(self.owner)
-        StoreConfig.objects.filter(store=self.store).update(invoice_enabled=False, invoice_tax_rate=None)
-        response = client.patch(reverse("store-config", args=[self.store.id]), {"invoice_enabled": True}, format="json")
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("invoice_tax_rate", response.data)
+        StoreConfig.objects.filter(store=self.store).update(
+            invoice_enabled=False,
+            invoice_tax_rate=None,
+            invoice_legal_name="",
+            invoice_billing_address="",
+            invoice_country="",
+            invoice_contact_email="",
+            invoice_identifiers={},
+        )
+        response = client.patch(
+            reverse("store-config", args=[self.store.id]),
+            {"invoice_enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["invoice_enabled"])
+        self.assertTrue(response.data["invoice_issuance_available"])
 
     def test_invoice_activation_preview_and_issuance_require_entitlement(self):
         PlanEntitlement.objects.filter(
@@ -100,6 +113,8 @@ class InvoiceTests(TestCase):
 
         self.assertEqual(activation.status_code, 400)
         self.assertIn("invoice_enabled", activation.data)
+        config = client.get(reverse("store-config", args=[self.store.id]))
+        self.assertFalse(config.data["invoice_issuance_available"])
         self.assertEqual(preview.status_code, 403)
         denied_order = self.paid_order("entitlement-denied")
         self.assertIsNone(denied_order.tax_rate)

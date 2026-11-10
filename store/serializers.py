@@ -108,13 +108,14 @@ class StorefrontAssetSerializer(serializers.ModelSerializer):
 class StoreConfigSerializer(serializers.ModelSerializer):
     payment_gateway = serializers.SerializerMethodField()
     can_remove_platform_branding = serializers.SerializerMethodField()
+    invoice_issuance_available = serializers.SerializerMethodField()
 
     class Meta:
         model = StoreConfig
         fields = [
             "plan", "currency", "default_locale", "payment_provider", "payment_gateway", "payment_keys", "cod_enabled", "from_email", "brand_color",
             "loyalty_enabled", "shipping_fee", "free_shipping_enabled", "free_shipping_threshold", "free_shipping_currency",
-            "invoice_enabled", "invoice_legal_name", "invoice_billing_address", "invoice_country", "invoice_contact_email",
+            "invoice_enabled", "invoice_issuance_available", "invoice_legal_name", "invoice_billing_address", "invoice_country", "invoice_contact_email",
             "invoice_identifiers", "invoice_issuer_scope", "invoice_series_prefix", "invoice_tax_regime",
             "invoice_tax_rate", "invoice_prices_include_tax", "invoice_shipping_tax_rate", "invoice_tax_wording",
             "design", "contact_email", "support_phone", "whatsapp_phone",
@@ -125,7 +126,13 @@ class StoreConfigSerializer(serializers.ModelSerializer):
         # Domain publication has a dedicated ownership/DNS/HTTPS workflow.
         # Keeping the legacy value readable avoids a breaking response change,
         # but generic settings writes must never make an unverified host live.
-        read_only_fields = ["plan", "payment_gateway", "domain", "can_remove_platform_branding"]
+        read_only_fields = ["plan", "payment_gateway", "domain", "can_remove_platform_branding", "invoice_issuance_available"]
+
+    def get_invoice_issuance_available(self, instance):
+        from subscriptions.entitlements import owner_has_store_entitlement
+        from subscriptions.policies import INVOICING_KEY
+
+        return owner_has_store_entitlement(instance.store, INVOICING_KEY)
 
     def get_can_remove_platform_branding(self, instance):
         from subscriptions.entitlements import owner_has_store_entitlement
@@ -286,22 +293,6 @@ class StoreConfigSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"invoice_identifiers": "Use only ICE, IF, TP and RC identifiers."})
         if any(len(str(value)) > 80 for value in identifiers.values()):
             raise serializers.ValidationError({"invoice_identifiers": "Each identifier is limited to 80 characters."})
-        enabled = attrs.get("invoice_enabled", current.invoice_enabled if current else False)
-        if enabled:
-            required = {
-                "invoice_legal_name": attrs.get("invoice_legal_name", current.invoice_legal_name if current else ""),
-                "invoice_billing_address": attrs.get("invoice_billing_address", current.invoice_billing_address if current else ""),
-                "invoice_country": attrs.get("invoice_country", current.invoice_country if current else ""),
-                "invoice_contact_email": attrs.get("invoice_contact_email", current.invoice_contact_email if current else ""),
-                "invoice_issuer_scope": attrs.get("invoice_issuer_scope", current.invoice_issuer_scope if current else ""),
-                "invoice_series_prefix": attrs.get("invoice_series_prefix", current.invoice_series_prefix if current else ""),
-            }
-            missing = {key: "This field is required before invoice issuance can be enabled." for key, value in required.items() if not str(value).strip()}
-            tax_rate = attrs.get("invoice_tax_rate", current.invoice_tax_rate if current else None)
-            if tax_rate is None:
-                missing["invoice_tax_rate"] = "Enter the store tax percentage. Use 0 for tax-exempt products."
-            if missing:
-                raise serializers.ValidationError(missing)
         if "payment_keys" not in attrs:
             return attrs
         credentials = attrs["payment_keys"]
