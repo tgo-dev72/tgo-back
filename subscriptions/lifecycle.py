@@ -30,6 +30,35 @@ def _scope_has_renewal(subscription, now):
     return queryset.exists()
 
 
+def dispatch_expired_subscription_notice(subscription_id):
+    """Send the termination notice once when access first observes expiry."""
+    candidate = UserSubscription.objects.select_related(
+        "user", "plan", "user__merchant_profile",
+    ).filter(pk=subscription_id).first()
+    if (
+        candidate is None
+        or candidate.status != UserSubscription.Status.EXPIRED
+        or candidate.current_period_end is None
+        or _scope_has_renewal(candidate, timezone.now())
+    ):
+        return False
+    try:
+        with transaction.atomic():
+            notice = SubscriptionLifecycleNotice.objects.create(
+                subscription=candidate,
+                period_end=candidate.current_period_end,
+                event=SubscriptionLifecycleNotice.Event.EXPIRED,
+            )
+    except IntegrityError:
+        return False
+    from notifications.platform_email import send_subscription_lifecycle_notice
+
+    if send_subscription_lifecycle_notice(candidate, SubscriptionLifecycleNotice.Event.EXPIRED):
+        return True
+    notice.delete()
+    return False
+
+
 def dispatch_subscription_lifecycle_notices(now=None):
     """Send each 7-day, 3-day, and expiry notice at most once per period."""
     now = now or timezone.now()
@@ -48,6 +77,9 @@ def dispatch_subscription_lifecycle_notices(now=None):
                 continue
             if candidate.status == UserSubscription.Status.ACTIVE:
                 candidate = refresh_expired_subscription(candidate)
+            if dispatch_expired_subscription_notice(candidate.pk):
+                sent += 1
+            continue
         elif candidate.status != UserSubscription.Status.ACTIVE:
             continue
         try:

@@ -113,6 +113,28 @@ class CommercialCatalogRecoveryTests(TestCase):
         self.assertEqual(refreshed.current_period_end, expired_at)
 
     @patch("notifications.platform_email.send_subscription_lifecycle_notice", return_value=True)
+    def test_first_expiry_refresh_sends_termination_notice_once(self, send_notice):
+        user = User.objects.create_user(
+            email="expiry-refresh@example.com", password="pass", email_verified_at=timezone.now(),
+        )
+        MerchantProfile.objects.create(user=user)
+        subscription = ensure_free_subscription(user)
+        period_end = timezone.now() - timedelta(seconds=1)
+        UserSubscription.objects.filter(pk=subscription.pk).update(current_period_end=period_end)
+        subscription.refresh_from_db()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            refresh_expired_subscription(subscription)
+        refresh_expired_subscription(subscription)
+
+        self.assertEqual(send_notice.call_count, 1)
+        self.assertTrue(SubscriptionLifecycleNotice.objects.filter(
+            subscription=subscription,
+            period_end=period_end,
+            event=SubscriptionLifecycleNotice.Event.EXPIRED,
+        ).exists())
+
+    @patch("notifications.platform_email.send_subscription_lifecycle_notice", return_value=True)
     def test_lifecycle_notices_send_once_at_seven_days_three_days_and_expiry(self, send_notice):
         user = User.objects.create_user(
             email="notices@example.com", password="pass", email_verified_at=timezone.now(),

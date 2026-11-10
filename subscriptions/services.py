@@ -979,6 +979,7 @@ def refresh_expired_subscription(subscription):
     """Expire from freshly locked state so status reads cannot undo a renewal."""
     if subscription is None:
         return None
+    expired_now = False
     with transaction.atomic():
         get_user_model().objects.select_for_update().get(pk=subscription.user_id)
         # Lock only the subscription row. Both related foreign keys are
@@ -994,8 +995,18 @@ def refresh_expired_subscription(subscription):
             current.status = UserSubscription.Status.EXPIRED
             current.save(update_fields=["status", "updated_at"])
             sync_user_entitlements(current)
+            expired_now = True
         # Preserve the historical in-place contract for callers that keep the
         # object they passed, while returning the freshly locked instance.
         subscription.status = current.status
         subscription.current_period_end = current.current_period_end
+        if expired_now:
+            subscription_id = current.pk
+
+            def notify_expiry():
+                from .lifecycle import dispatch_expired_subscription_notice
+
+                dispatch_expired_subscription_notice(subscription_id)
+
+            transaction.on_commit(notify_expiry)
         return current
