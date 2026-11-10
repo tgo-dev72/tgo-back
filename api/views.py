@@ -14,6 +14,7 @@ from django.conf import settings
 from django.core.handlers.asgi import ASGIRequest
 from django.db import close_old_connections, transaction
 from django.http import StreamingHttpResponse
+from django.utils.cache import patch_cache_control
 
 from rest_framework import generics
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied
@@ -141,7 +142,15 @@ class DesignListView(APIView):
     def get(self, request):
         from theme_previewer.registry import preview_payload
 
-        return Response(DesignSerializer([preview_payload(item) for item in list_designs()], many=True).data)
+        response = Response(DesignSerializer([preview_payload(item) for item in list_designs()], many=True).data)
+        patch_cache_control(
+            response,
+            public=True,
+            max_age=60,
+            s_maxage=300,
+            stale_while_revalidate=600,
+        )
+        return response
 
 
 class DesignDetailView(APIView):
@@ -156,7 +165,15 @@ class DesignDetailView(APIView):
             raise NotFound("Design not found.")
         from theme_previewer.registry import preview_payload
 
-        return Response(DesignSerializer(preview_payload(design)).data)
+        response = Response(DesignSerializer(preview_payload(design)).data)
+        patch_cache_control(
+            response,
+            public=True,
+            max_age=60,
+            s_maxage=300,
+            stale_while_revalidate=600,
+        )
+        return response
 
 
 # ── Deploy requests (merchant) ──────────────────────────────────────

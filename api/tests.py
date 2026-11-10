@@ -96,6 +96,9 @@ class DesignSerializerTests(TestCase):
                 for design in premium
             )
         )
+        self.assertIn("max-age=60", response["Cache-Control"])
+        self.assertIn("s-maxage=300", response["Cache-Control"])
+        self.assertIn("stale-while-revalidate=600", response["Cache-Control"])
 
     @patch("theme_previewer.registry.ThemeDemoStore.objects.select_related")
     def test_design_catalog_survives_unavailable_preview_table(self, select_related):

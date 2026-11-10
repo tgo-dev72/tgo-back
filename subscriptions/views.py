@@ -71,7 +71,13 @@ class PlanCatalogView(APIView):
                 } for item in gateways],
             },
         })
-        patch_cache_control(response, public=True, max_age=0, must_revalidate=True)
+        patch_cache_control(
+            response,
+            public=True,
+            max_age=60,
+            s_maxage=300,
+            stale_while_revalidate=600,
+        )
         return response
 
 

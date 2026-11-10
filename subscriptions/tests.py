@@ -770,8 +770,9 @@ class SubscriptionFlowTests(TestCase):
         self.assertNotIn("premium", {item["slug"] for item in response.data["plans"]})
         self.assertTrue(response.data["billing"]["available"])
         self.assertTrue(response.data["billing"]["sandbox"])
-        self.assertIn("max-age=0", response["Cache-Control"])
-        self.assertIn("must-revalidate", response["Cache-Control"])
+        self.assertIn("max-age=60", response["Cache-Control"])
+        self.assertIn("s-maxage=300", response["Cache-Control"])
+        self.assertIn("stale-while-revalidate=600", response["Cache-Control"])
         self.assertEqual(response.data["billing"]["gateways"][0]["code"], "youcanpay")
 
     def test_disabled_gateway_is_hidden_and_rejected_for_checkout(self):
