@@ -5,6 +5,7 @@ from decimal import Decimal
 from django.db import transaction
 
 from .models import EntitlementDefinition, PlanEntitlement, SubscriptionPlan
+from .official_plans import OFFICIAL_PLANS, plan_translations
 from .policies import BUSINESS_RULES, PREMIUM_DESIGNS_KEY
 
 
@@ -113,6 +114,35 @@ def restore_commercial_reference_data():
         plan=free_plan,
         definition__key=PREMIUM_DESIGNS_KEY,
     ).update(value=False)
+    definitions_by_key = {item.key: item for item in definitions}
+    previous = None
+    for slug, config in OFFICIAL_PLANS.items():
+        translations = plan_translations(config)
+        plan, _created = SubscriptionPlan.objects.update_or_create(
+            slug=slug,
+            defaults={
+                "name": translations["en"]["name"],
+                "description": translations["en"]["description"],
+                "translations": translations,
+                "price": config["price"],
+                "currency": "MAD",
+                "duration_days": 30,
+                "entitlement_scope": SubscriptionPlan.EntitlementScope.ALL_OWNED_STORES,
+                "is_active": True,
+                "is_featured": config["featured"],
+                "sort_order": config["sort_order"],
+                "upgrade_from": previous,
+            },
+        )
+        for key, value in config["entitlements"].items():
+            definition = definitions_by_key[key]
+            PlanEntitlement.objects.update_or_create(
+                plan=plan, definition=definition, defaults={"value": value},
+            )
+        previous = plan
+    # Historical Premium subscriptions retain their immutable entitlement
+    # snapshots; the legacy offer is simply unavailable for new checkout.
+    SubscriptionPlan.objects.filter(slug="premium").update(is_active=False, is_featured=False)
     return {
         "capabilities": EntitlementDefinition.objects.count(),
         "capabilities_created": capabilities_created,

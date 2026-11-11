@@ -773,7 +773,10 @@ class PremiumPricingTests(PlatformAdminAPITestsMixin, TestCase):
         response = self.client_for(self.staff).get(reverse("platform-admin-pricing"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual({plan["slug"] for plan in response.data["plans"]}, {"free", "premium"})
+        self.assertEqual(
+            {plan["slug"] for plan in response.data["plans"]},
+            {"free", "starter", "growth", "business", "premium"},
+        )
         self.assertTrue(response.data["provider"]["configured"])
         self.assertTrue(response.data["provider"]["sandbox"])
         capability_keys = {item["key"] for item in response.data["capabilities"]}
@@ -785,7 +788,7 @@ class PremiumPricingTests(PlatformAdminAPITestsMixin, TestCase):
         self.assertTrue(all(item["configured"] for item in response.data["rule_templates"]))
         plans = {item["slug"]: item for item in response.data["plans"]}
         self.assertIn("Stores included: 1 store", {item["display"] for item in plans["free"]["benefits"]})
-        self.assertIn("Stores included: 3 stores", {item["display"] for item in plans["premium"]["benefits"]})
+        self.assertIn("Stores included: 3 stores", {item["display"] for item in plans["growth"]["benefits"]})
         rendered = str(response.data)
         self.assertNotIn("pri_sandbox_test", rendered)
         self.assertNotIn("pub_sandbox_test", rendered)
@@ -818,7 +821,7 @@ class PremiumPricingTests(PlatformAdminAPITestsMixin, TestCase):
                 self.assertEqual(response.data["entitlement_scope"], payload["entitlement_scope"])
                 self.assertEqual(response.data["is_active"], payload["is_active"])
 
-        self.assertEqual(SubscriptionPlan.objects.count(), 10)
+        self.assertEqual(SubscriptionPlan.objects.count(), 13)
 
     def test_pricing_rejects_invalid_values_without_partial_update(self):
         client = self.client_for(self.staff)

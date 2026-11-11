@@ -489,3 +489,18 @@ def enforce_operation(user, operation, *, context=None):
                     used=used,
                 )
     return True
+
+
+def resource_usage(user, key, *, store=None):
+    """Return authoritative current usage and limit for a governed resource."""
+    from .entitlements import resolve_entitlement
+
+    rule = BUSINESS_RULES.get(key)
+    if rule is None or rule.kind != "resource_limit" or rule.usage_counter is None:
+        return None
+    value = resolve_entitlement(user, key, store)
+    return {
+        "used": int(rule.usage_counter(user, {"store": store})),
+        "limit": int(value),
+        "unlimited": bool(rule.zero_means_unlimited and int(value) == 0),
+    }

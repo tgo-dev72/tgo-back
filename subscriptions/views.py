@@ -21,6 +21,8 @@ from payments.gateways.registry import configured_backends
 from payments.gateways.availability import available_platform_gateways, effective_platform_credentials
 
 from .models import EntitlementDefinition, PlanEntitlement, SubscriptionCreditAccount, SubscriptionPayment, SubscriptionPlan, UserSubscription
+from .official_plans import OFFICIAL_ENTITLEMENT_KEYS
+from .policies import EMAIL_SEND_LIMIT_KEY, PRODUCT_LIMIT_KEY, STORE_LIMIT_KEY, TEAM_LIMIT_KEY, resource_usage
 from .serializers import CheckoutSerializer, SubscriptionPlanSerializer
 from .services import InvalidSubscriptionWebhook, PaymentCaptureError, PendingCheckoutConflict, ProviderVerificationUnavailable, SubscriptionError, capture_subscription_payment, create_subscription_checkout, ensure_free_subscription, expire_stale_subscription_checkouts, handle_subscription_webhook, refresh_expired_subscription, verify_provider_transaction
 from .access import user_has_active_subscription
@@ -47,7 +49,13 @@ class PlanCatalogView(APIView):
                 "sandbox": False,
             },
         )
-        definitions = list(EntitlementDefinition.objects.filter(is_active=True))
+        # Public commerce surfaces expose only capabilities that belong to the
+        # official offer. Provisional registry entries remain available to the
+        # admin without being marketed as plan promises.
+        definitions = list(EntitlementDefinition.objects.filter(
+            is_active=True,
+            key__in=OFFICIAL_ENTITLEMENT_KEYS,
+        ))
         plans = SubscriptionPlan.objects.filter(is_active=True).prefetch_related(
             Prefetch(
                 "configured_entitlements",
@@ -124,6 +132,24 @@ class SubscriptionStatusView(APIView):
                 ).first()
             except (ValueError, TypeError):
                 requested_payment = None
+        from store.models import Store, StoreMember
+        owned_stores = list(Store.objects.filter(
+            members__user=request.user,
+            members__role=StoreMember.Roles.OWNER,
+        ).distinct().order_by("id"))
+        usage = {
+            "account": {
+                STORE_LIMIT_KEY: resource_usage(request.user, STORE_LIMIT_KEY),
+                TEAM_LIMIT_KEY: resource_usage(request.user, TEAM_LIMIT_KEY),
+            },
+            "stores": {
+                str(store.pk): {
+                    PRODUCT_LIMIT_KEY: resource_usage(request.user, PRODUCT_LIMIT_KEY, store=store),
+                    EMAIL_SEND_LIMIT_KEY: resource_usage(request.user, EMAIL_SEND_LIMIT_KEY, store=store),
+                }
+                for store in owned_stores
+            },
+        }
         return Response({
             "access": {
                 "allowed": access_allowed,
@@ -133,6 +159,7 @@ class SubscriptionStatusView(APIView):
             "subscriptions": [_subscription_payload(item) for item in subscriptions],
             "latest_payment": _payment_payload(latest_payment),
             "payment": _payment_payload(requested_payment),
+            "usage": usage,
             "balances": [
                 {
                     "currency": account.currency,

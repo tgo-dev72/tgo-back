@@ -82,6 +82,8 @@ Thumbs.db
 !/docs/theme-previewer/*.md
 !/docs/custom-domains.md
 !/docs/SEO_AUDIT_2026-11-03.md
+!/docs/subscriptions/
+!/docs/subscriptions/official-packages.md
 
 # Generated QA artifacts are archived separately.
 release-evidence/

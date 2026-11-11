@@ -8,6 +8,7 @@ from rest_framework.test import APIClient
 from unittest.mock import patch
 
 from store.models import Store, StoreConfig, StoreMember
+from subscriptions.models import EntitlementDefinition, PlanEntitlement, SubscriptionPlan
 
 from .emails import prepare_campaign_deliveries, send_campaign, send_campaign_batch
 from .models import CampaignDelivery, NewsletterCampaign, Subscriber
@@ -98,6 +99,14 @@ class CampaignTests(TestCase):
         StoreMember.objects.create(user=self.owner, store=self.store, role=StoreMember.Roles.OWNER)
         self.client = APIClient()
         self.client.force_authenticate(self.owner)
+        # Campaign behavior tests need a positive allowance. The official Free
+        # offer deliberately has zero marketing sends, which is covered by the
+        # subscription matrix tests rather than these delivery mechanics tests.
+        PlanEntitlement.objects.update_or_create(
+            plan=SubscriptionPlan.objects.get(slug="free"),
+            definition=EntitlementDefinition.objects.get(key="marketing.email_monthly_sends"),
+            defaults={"value": 100},
+        )
 
     def _create_campaign(self, **kw):
         data = {"subject": "Hello", "preview_text": "p", "body_html": "<p>Hi</p>", "body_text": "Hi", **kw}

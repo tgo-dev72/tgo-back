@@ -95,7 +95,7 @@ class PlatformCommerceSettings(models.Model):
 
     singleton_key = models.PositiveSmallIntegerField(default=1, unique=True, editable=False)
     free_trial_days = models.PositiveIntegerField(
-        default=14,
+        default=30,
         validators=[MinValueValidator(1), MaxValueValidator(365)],
         help_text="Number of days a newly granted Free trial remains usable.",
     )
