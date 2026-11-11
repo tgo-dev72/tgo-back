@@ -195,6 +195,9 @@ def default_homepage_sections():
                 "cta_label": localized_text("Browse products", "Voir les produits", "تصفح المنتجات"),
                 "cta_url": "#products",
                 "image_url": "",
+                "show_overlay": True,
+                "show_text": True,
+                "show_button": True,
             },
         },
         {
@@ -267,6 +270,9 @@ def default_content_sections(title, subtitle, body=""):
                 "cta_label": localized_text(),
                 "cta_url": "",
                 "image_url": "",
+                "show_overlay": True,
+                "show_text": True,
+                "show_button": True,
             },
         },
         {
@@ -435,7 +441,7 @@ def validate_storefront_sections(value):
     seen_ids = set()
     schemas = {
         "announcement": {"text", "link_label", "link_url"},
-        "hero": {"eyebrow", "title", "subtitle", "cta_label", "cta_url", "image_url"},
+        "hero": {"eyebrow", "title", "subtitle", "cta_label", "cta_url", "image_url", "show_overlay", "show_text", "show_button"},
         "promotional_banner": {"title", "body", "cta_label", "cta_url", "image_url", "width", "height"},
         "collections": {"title", "limit"},
         "products": {"title", "source", "limit", "layout"},
@@ -467,7 +473,10 @@ def validate_storefront_sections(value):
             raise ValidationError(f"{label} visibility must be true or false.")
         settings_value = section["settings"]
         announcement_items = section_type == "announcement" and isinstance(settings_value, dict) and set(settings_value) == {"items"}
-        if not isinstance(settings_value, dict) or (set(settings_value) != schemas[section_type] and not announcement_items):
+        legacy_hero = section_type == "hero" and isinstance(settings_value, dict) and set(settings_value) == {
+            "eyebrow", "title", "subtitle", "cta_label", "cta_url", "image_url",
+        }
+        if not isinstance(settings_value, dict) or (set(settings_value) != schemas[section_type] and not announcement_items and not legacy_hero):
             raise ValidationError(f"{label} settings do not match its section type.")
         if announcement_items:
             items = settings_value["items"]
@@ -529,6 +538,12 @@ def validate_storefront_sections(value):
             not isinstance(settings_value[field], bool) for field in schemas[section_type]
         ):
             raise ValidationError(f"{label} display settings must be true or false.")
+        if section_type == "hero" and any(
+            not isinstance(settings_value[field], bool)
+            for field in ("show_overlay", "show_text", "show_button")
+            if field in settings_value
+        ):
+            raise ValidationError(f"{label} banner display settings must be true or false.")
         if section_type == "products":
             if settings_value["source"] not in HOMEPAGE_PRODUCT_SOURCES:
                 raise ValidationError(f"{label} has an unsupported product selection.")

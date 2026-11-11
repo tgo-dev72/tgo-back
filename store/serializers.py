@@ -627,6 +627,15 @@ class StoreDeleteSerializer(serializers.Serializer):
         return attrs
 
 
+class StoreRenameSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=100, trim_whitespace=True)
+
+    def validate_name(self, value):
+        if not value:
+            raise serializers.ValidationError("Store name cannot be empty.")
+        return value
+
+
 class StoreSerializer(serializers.ModelSerializer):
     from catalog.serializers import RetailTypeSerializer
 

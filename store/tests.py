@@ -62,6 +62,29 @@ class StoreCreationReferenceDataTests(TestCase):
         self.assertFalse(Store.objects.filter(slug="blocked-store").exists())
 
 
+class StoreRenameTests(TestCase):
+    def setUp(self):
+        self.owner = get_user_model().objects.create_user(
+            email="rename-owner@example.test", password="MerchantPass123!",
+        )
+        self.store = Store.objects.create(name="Old name", slug="wahajsahra")
+        StoreMember.objects.create(user=self.owner, store=self.store, role=StoreMember.Roles.OWNER)
+        self.client = APIClient()
+        self.client.force_authenticate(self.owner)
+
+    def test_owner_can_change_store_name_without_changing_address(self):
+        response = self.client.patch(
+            reverse("store-delete", kwargs={"store_id": self.store.id}),
+            {"name": "Wahaj Sahra"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.store.refresh_from_db()
+        self.assertEqual(self.store.name, "Wahaj Sahra")
+        self.assertEqual(self.store.slug, "wahajsahra")
+
+
 class SeedDemoCommandTests(TestCase):
     def test_preserves_merchant_owners_and_never_assigns_platform_staff(self):
         merchant = get_user_model().objects.create_user(

@@ -43,6 +43,7 @@ from .serializers import (
     StoreMemberRoleSerializer,
     StoreMemberSerializer,
     StoreLogoUploadSerializer,
+    StoreRenameSerializer,
     StorefrontAssetSerializer,
     StorefrontDomainSerializer,
     StorefrontPageSerializer,
@@ -702,6 +703,20 @@ class StoreDeleteView(APIView):
     """
 
     permission_classes = [IsAuthenticated]
+
+    def patch(self, request, store_id):
+        store = _get_store_for_user(request.user, store_id)
+        membership = StoreMember.objects.filter(user=request.user, store=store).first()
+        if membership is None or membership.role != StoreMember.Roles.OWNER:
+            return Response(
+                {"code": "store_rename_not_allowed", "detail": "Only the store owner can change its name."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = StoreRenameSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        store.name = serializer.validated_data["name"]
+        store.save(update_fields=["name"])
+        return Response(StoreSerializer(store, context={"request": request}).data)
 
     @transaction.atomic
     def delete(self, request, store_id):

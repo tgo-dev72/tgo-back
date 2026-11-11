@@ -5,6 +5,24 @@ from .models import default_content_sections, localized_text, validate_storefron
 
 
 class StorefrontRichTextValidationTests(SimpleTestCase):
+    def test_hero_accepts_independent_overlay_text_and_button_controls(self):
+        validate_storefront_sections([{
+            "id": "hero",
+            "type": "hero",
+            "enabled": True,
+            "settings": {
+                "eyebrow": localized_text(),
+                "title": localized_text("Wahaj Sahra"),
+                "subtitle": localized_text("New collection"),
+                "cta_label": localized_text("Shop now"),
+                "cta_url": "/collections/all",
+                "image_url": "https://res.cloudinary.com/demo/image/upload/banner.jpg",
+                "show_overlay": False,
+                "show_text": False,
+                "show_button": True,
+            },
+        }])
+
     def test_promotional_banner_accepts_bounded_layout_and_localized_copy(self):
         validate_storefront_sections([{
             "id": "seasonal-offer",
