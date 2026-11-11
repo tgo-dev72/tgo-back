@@ -1,10 +1,11 @@
 import io
 import json
+import csv
 
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from rest_framework.test import APIClient
 
 from store.models import Store, StoreMember
@@ -83,3 +84,21 @@ class MerchantSectionImportTests(TestCase):
         self.assertEqual(response.status_code, 400, response.data)
         self.assertEqual(response.data["errors"][0]["row"], 3)
         self.assertFalse(CatalogSection.objects.filter(store=self.store).exists())
+
+    def test_templates_are_downloadable_in_all_supported_formats(self):
+        base = f"/api/catalog/store/{self.store.pk}/sections/import-template/"
+        csv_response = self.client.get(base, {"file_format": "csv"})
+        self.assertEqual(csv_response.status_code, 200)
+        rows = list(csv.reader(io.StringIO(csv_response.content.decode("utf-8-sig"))))
+        self.assertEqual(rows[0], ["key", "name_en", "name_fr", "name_ar", "icon", "sort_order", "is_visible"])
+        self.assertEqual(rows[1][0], "women")
+
+        json_response = self.client.get(base, {"file_format": "json"})
+        self.assertEqual(json_response.status_code, 200)
+        self.assertEqual(json_response.json()["sections"][0]["name_ar"], "نساء")
+
+        xlsx_response = self.client.get(base, {"file_format": "xlsx"})
+        self.assertEqual(xlsx_response.status_code, 200)
+        workbook = load_workbook(io.BytesIO(xlsx_response.content), read_only=True)
+        self.assertEqual(workbook["Sections"]["A1"].value, "key")
+        self.assertEqual(workbook["Instructions"]["A2"].value, "key")

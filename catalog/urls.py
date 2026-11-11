@@ -16,6 +16,7 @@ from .merchant_views import (
     MerchantProductVendorListCreateView,
     MerchantRetailTypeListView,
     MerchantSectionImportView,
+    MerchantSectionImportTemplateView,
     MerchantSectionListCreateView,
     MerchantSectionRetrieveUpdateDestroyView,
     MerchantVariantListCreateView,
@@ -42,6 +43,7 @@ urlpatterns = [
     path("store/<int:store_id>/configuration/", MerchantCatalogConfigurationView.as_view()),
     path("store/<int:store_id>/sections/", MerchantSectionListCreateView.as_view()),
     path("store/<int:store_id>/sections/import/", MerchantSectionImportView.as_view()),
+    path("store/<int:store_id>/sections/import-template/", MerchantSectionImportTemplateView.as_view()),
     path("store/<int:store_id>/sections/<int:pk>/", MerchantSectionRetrieveUpdateDestroyView.as_view()),
     path(
         "store/<int:store_id>/sections/<int:section_pk>/attributes/",

@@ -7,9 +7,10 @@ import json
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.utils.text import slugify
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font, PatternFill
 from rest_framework import generics, status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -115,6 +116,12 @@ class MerchantSectionListCreateView(CatalogAccessMixin, generics.ListCreateAPIVi
 SECTION_IMPORT_FIELDS = {
     "key", "name_en", "name_fr", "name_ar", "icon", "sort_order", "is_visible",
 }
+SECTION_IMPORT_HEADERS = ["key", "name_en", "name_fr", "name_ar", "icon", "sort_order", "is_visible"]
+SECTION_IMPORT_EXAMPLES = [
+    ["women", "Women", "Femmes", "نساء", "FaTshirt:fa", 1, True],
+    ["beauty", "Beauty", "Beauté", "الجمال", "FaHeart:fa", 2, True],
+    ["accessories", "Accessories", "Accessoires", "إكسسوارات", "FaBagShopping:fa6", 3, True],
+]
 
 
 def _section_import_rows(upload):
@@ -257,6 +264,60 @@ class MerchantSectionImportView(CatalogAccessMixin, APIView):
                 created += instance is None
                 updated += instance is not None
         return Response({"created": created, "updated": updated, "total": created + updated})
+
+
+class MerchantSectionImportTemplateView(CatalogAccessMixin, APIView):
+    """Download a ready-to-edit section import template."""
+    permission_classes = [IsAuthenticated]
+    permission_map = {"GET": "collections.view"}
+
+    def get(self, request, store_id):
+        _merchant_store(request.user, store_id)
+        file_format = request.query_params.get("file_format", "xlsx").lower()
+        if file_format == "csv":
+            output = io.StringIO(newline="")
+            writer = csv.writer(output, lineterminator="\r\n")
+            writer.writerow(SECTION_IMPORT_HEADERS)
+            writer.writerows(SECTION_IMPORT_EXAMPLES)
+            response = HttpResponse("\ufeff" + output.getvalue(), content_type="text/csv; charset=utf-8")
+        elif file_format == "json":
+            sections = [dict(zip(SECTION_IMPORT_HEADERS, row)) for row in SECTION_IMPORT_EXAMPLES]
+            response = HttpResponse(
+                json.dumps({"sections": sections}, ensure_ascii=False, indent=2),
+                content_type="application/json; charset=utf-8",
+            )
+        elif file_format == "xlsx":
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.title = "Sections"
+            sheet.append(SECTION_IMPORT_HEADERS)
+            for row in SECTION_IMPORT_EXAMPLES:
+                sheet.append(row)
+            for cell in sheet[1]:
+                cell.font = Font(bold=True, color="FFFFFF")
+                cell.fill = PatternFill("solid", fgColor="2563EB")
+            for column, width in {"A": 18, "B": 22, "C": 22, "D": 22, "E": 24, "F": 14, "G": 14}.items():
+                sheet.column_dimensions[column].width = width
+            sheet.freeze_panes = "A2"
+            instructions = workbook.create_sheet("Instructions")
+            instructions.append(["Column", "Rule"])
+            instructions.append(["key", "Unique identifier. A matching key updates the existing section."])
+            instructions.append(["name_en / name_fr / name_ar", "Add at least one translated name."])
+            instructions.append(["icon", "Optional. Use one of the icon values shown in the sample rows."])
+            instructions.append(["sort_order", "Whole number of 0 or greater. Lower numbers appear first."])
+            instructions.append(["is_visible", "Use true/false, yes/no, or 1/0."])
+            instructions.column_dimensions["A"].width = 30
+            instructions.column_dimensions["B"].width = 80
+            output = io.BytesIO()
+            workbook.save(output)
+            response = HttpResponse(
+                output.getvalue(),
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        else:
+            return Response({"file_format": "Choose xlsx, csv, or json."}, status=status.HTTP_400_BAD_REQUEST)
+        response["Content-Disposition"] = f'attachment; filename="sections-import-template.{file_format}"'
+        return response
 
 
 class MerchantSectionRetrieveUpdateDestroyView(CatalogAccessMixin, generics.RetrieveUpdateDestroyAPIView):
