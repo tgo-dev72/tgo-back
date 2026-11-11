@@ -108,6 +108,30 @@ class PublicCatalogPaginationTests(TestCase):
                 )
                 self.assertEqual(response.status_code, 400, response.content)
 
+    def test_section_names_follow_language_with_english_then_available_fallback(self):
+        self.section.label_translations = {"en": "Care", "fr": "Soins", "ar": ""}
+        self.section.save(update_fields=["label_translations"])
+
+        french = self.client.get(
+            "/api/catalog/sections/", HTTP_X_STORE_SLUG=self.store.slug, HTTP_ACCEPT_LANGUAGE="fr-MA",
+        )
+        arabic = self.client.get(
+            "/api/catalog/sections/", HTTP_X_STORE_SLUG=self.store.slug, HTTP_ACCEPT_LANGUAGE="ar",
+        )
+        self.assertEqual(french.status_code, 200, french.content)
+        self.assertIn("Accept-Language", french.headers["Vary"])
+        self.assertEqual(french.json()[0]["label"], "Soins")
+        self.assertEqual(arabic.json()[0]["label"], "Care")
+        self.assertEqual(french.json()[0]["label_translations"], {"en": "Care", "fr": "Soins", "ar": ""})
+
+        self.section.label = "عناية"
+        self.section.label_translations = {"en": "", "fr": "", "ar": "عناية"}
+        self.section.save(update_fields=["label", "label_translations"])
+        available = self.client.get(
+            "/api/catalog/sections/", HTTP_X_STORE_SLUG=self.store.slug, HTTP_ACCEPT_LANGUAGE="fr",
+        )
+        self.assertEqual(available.json()[0]["label"], "عناية")
+
 
 class MerchantCatalogEntitlementTests(TestCase):
     def setUp(self):

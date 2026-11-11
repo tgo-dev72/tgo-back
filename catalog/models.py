@@ -168,6 +168,7 @@ class CatalogSection(models.Model):
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="catalog_sections")
     key = models.SlugField(max_length=50)
     label = models.CharField(max_length=100)
+    label_translations = models.JSONField(default=dict, blank=True)
     description = models.TextField(blank=True, default="")
     thumbnail = models.FileField(
         storage=product_image_storage,

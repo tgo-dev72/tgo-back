@@ -168,6 +168,53 @@ class AttributeDefSerializer(serializers.ModelSerializer):
         fields = ["id", "key", "label", "type", "level", "options", "required", "sort_order"]
 
 
+def _validate_section_label_translations(value):
+    if not isinstance(value, dict) or set(value) - {"en", "fr", "ar"}:
+        raise serializers.ValidationError("Use only EN, FR and AR section names.")
+    normalized = {}
+    for language in ("en", "fr", "ar"):
+        text = value.get(language, "")
+        if not isinstance(text, str):
+            raise serializers.ValidationError("Every translated section name must be text.")
+        normalized[language] = text.strip()
+        if len(normalized[language]) > 100:
+            raise serializers.ValidationError("Section names are limited to 100 characters.")
+    if not any(normalized.values()):
+        raise serializers.ValidationError("Add a section name in at least one language.")
+    return normalized
+
+
+def _apply_section_label(attrs, instance):
+    if "label_translations" in attrs:
+        translations = attrs["label_translations"]
+        attrs["label"] = translations.get("en") or next(value for value in translations.values() if value)
+    elif "label" in attrs:
+        translations = dict(getattr(instance, "label_translations", {}) or {})
+        translations["en"] = attrs["label"].strip()
+        attrs["label_translations"] = {
+            language: str(translations.get(language, "")).strip()
+            for language in ("en", "fr", "ar")
+        }
+    elif instance is None:
+        raise serializers.ValidationError({"label_translations": "Add a section name in at least one language."})
+    return attrs
+
+
+def _localize_section_representation(data, request):
+    translations = {
+        language: str(value).strip()
+        for language, value in (data.get("label_translations") or {}).items()
+        if language in {"en", "fr", "ar"} and str(value).strip()
+    }
+    requested = (request.headers.get("Accept-Language", "en") if request else "en").split(",", 1)[0].split("-", 1)[0].lower()
+    data["label"] = translations.get(requested) or translations.get("en") or next(iter(translations.values()), data["label"])
+    data["label_translations"] = {
+        language: translations.get(language, "")
+        for language in ("en", "fr", "ar")
+    }
+    return data
+
+
 class CatalogSectionSerializer(serializers.ModelSerializer):
     attribute_defs = AttributeDefSerializer(many=True, read_only=True)
     thumbnail = serializers.SerializerMethodField()
@@ -175,13 +222,25 @@ class CatalogSectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = CatalogSection
         fields = [
-            "id", "key", "label", "description", "thumbnail", "is_visible",
+            "id", "key", "label", "label_translations", "description", "thumbnail", "is_visible",
             "parent", "sort_mode", "icon", "sort_order", "attribute_defs",
             "seo_title", "seo_description", "seo_social_image",
         ]
+        extra_kwargs = {"label": {"required": False}}
 
     def get_thumbnail(self, obj):
         return _asset_url(obj.thumbnail, self.context)
+
+    def validate_label_translations(self, value):
+        return _validate_section_label_translations(value)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        return _apply_section_label(attrs, self.instance)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        return _localize_section_representation(data, self.context.get("request"))
 
     def validate_seo_title(self, value):
         from store.seo_validation import clean_seo_text
@@ -420,11 +479,23 @@ class MerchantSectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = CatalogSection
         fields = [
-            "id", "key", "label", "description", "thumbnail", "is_visible",
+            "id", "key", "label", "label_translations", "description", "thumbnail", "is_visible",
             "parent", "sort_mode", "icon", "sort_order", "attribute_defs",
             "seo_title", "seo_description", "seo_social_image",
         ]
         read_only_fields = ["id"]
+        extra_kwargs = {"label": {"required": False}}
+
+    def validate_label_translations(self, value):
+        return _validate_section_label_translations(value)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        return _apply_section_label(attrs, self.instance)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        return _localize_section_representation(data, self.context.get("request"))
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

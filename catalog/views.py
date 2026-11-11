@@ -1,5 +1,6 @@
 from django.db.models import Case, F, FloatField, Prefetch, Q, When
 from django.db.models.functions import Cast, Round
+from django.utils.cache import patch_vary_headers
 from rest_framework import generics
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny
@@ -29,7 +30,7 @@ class _CacheControlMixin:
     def finalize_response(self, request, response, *args, **kwargs):
         response = super().finalize_response(request, response, *args, **kwargs)
         response["Cache-Control"] = CACHE_CONTROL
-        response["Vary"] = "X-Store-Slug"
+        patch_vary_headers(response, ["X-Store-Slug", "Accept-Language"])
         return response
 
 
