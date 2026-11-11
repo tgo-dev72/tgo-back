@@ -57,6 +57,18 @@ class MerchantSectionImportTests(TestCase):
         self.assertEqual(section.key, "beaute")
         self.assertEqual(section.label, "Beauté")
 
+    def test_product_export_json_gets_specific_guidance(self):
+        response = self.upload(
+            "wahajsahra-products.json",
+            json.dumps({"schema": "tijarago.catalog", "version": 1, "products": []}).encode(),
+            "application/json",
+        )
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(response.data["code"], "section_import_product_export")
+        self.assertIn("product export", response.data["detail"])
+        self.assertFalse(CatalogSection.objects.filter(store=self.store).exists())
+
     def test_xlsx_is_supported(self):
         workbook = Workbook()
         sheet = workbook.active
@@ -83,6 +95,7 @@ class MerchantSectionImportTests(TestCase):
 
         self.assertEqual(response.status_code, 400, response.data)
         self.assertEqual(response.data["errors"][0]["row"], 3)
+        self.assertEqual(response.data["detail"], 'Row 3, field "sort_order": Use a whole number of 0 or greater.')
         self.assertFalse(CatalogSection.objects.filter(store=self.store).exists())
 
     def test_templates_are_downloadable_in_all_supported_formats(self):

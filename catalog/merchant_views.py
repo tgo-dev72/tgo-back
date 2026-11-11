@@ -132,6 +132,11 @@ def _section_import_rows(upload):
             payload = json.loads(raw.decode("utf-8-sig"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise APIValidationError({"file": "The JSON file is not valid UTF-8 JSON."}) from exc
+        if isinstance(payload, dict) and "products" in payload and "sections" not in payload:
+            raise APIValidationError({
+                "code": "section_import_product_export",
+                "detail": "This is a product export, not a section template. Download a section template and upload that file here.",
+            })
         rows = payload.get("sections") if isinstance(payload, dict) else payload
         if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
             raise APIValidationError({"file": "JSON must be an array of sections or an object with a sections array."})
@@ -244,7 +249,11 @@ class MerchantSectionImportView(CatalogAccessMixin, APIView):
                 "is_visible": is_visible,
             }, index))
         if errors:
-            return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
+            first = errors[0]
+            return Response({
+                "detail": f'Row {first["row"]}, field "{first["field"]}": {first["message"]}',
+                "errors": errors,
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         created = updated = 0
         with transaction.atomic():
@@ -256,8 +265,16 @@ class MerchantSectionImportView(CatalogAccessMixin, APIView):
                 )
                 if not serializer.is_valid():
                     transaction.set_rollback(True)
+                    row_errors = [
+                        {"row": row_number, "field": field, "message": str(messages[0])}
+                        for field, messages in serializer.errors.items()
+                    ]
+                    first = row_errors[0]
                     return Response(
-                        {"errors": [{"row": row_number, "field": field, "message": str(messages[0])} for field, messages in serializer.errors.items()]},
+                        {
+                            "detail": f'Row {first["row"]}, field "{first["field"]}": {first["message"]}',
+                            "errors": row_errors,
+                        },
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 serializer.save(store=store) if instance is None else serializer.save()
