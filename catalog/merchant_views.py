@@ -1,9 +1,15 @@
 """Merchant (dashboard) catalog management — full CRUD for sections,
 attribute defs, products, variants and product images. Every view enforces
 store membership through `_merchant_store()`."""
+import csv
+import io
+import json
+
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.http import Http404
+from django.utils.text import slugify
+from openpyxl import load_workbook
 from rest_framework import generics, status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -104,6 +110,153 @@ class MerchantSectionListCreateView(CatalogAccessMixin, generics.ListCreateAPIVi
     def perform_create(self, serializer):
         store = _merchant_store(self.request.user, self.kwargs["store_id"])
         serializer.save(store=store)
+
+
+SECTION_IMPORT_FIELDS = {
+    "key", "name_en", "name_fr", "name_ar", "icon", "sort_order", "is_visible",
+}
+
+
+def _section_import_rows(upload):
+    extension = upload.name.rsplit(".", 1)[-1].lower() if "." in upload.name else ""
+    raw = upload.read()
+    if extension == "json":
+        try:
+            payload = json.loads(raw.decode("utf-8-sig"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise APIValidationError({"file": "The JSON file is not valid UTF-8 JSON."}) from exc
+        rows = payload.get("sections") if isinstance(payload, dict) else payload
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise APIValidationError({"file": "JSON must be an array of sections or an object with a sections array."})
+        return rows
+    if extension == "csv":
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise APIValidationError({"file": "The CSV file must use UTF-8 encoding."}) from exc
+        try:
+            dialect = csv.Sniffer().sniff(text[:8192], delimiters=",;")
+        except csv.Error:
+            dialect = csv.excel
+        try:
+            return list(csv.DictReader(io.StringIO(text, newline=""), dialect=dialect))
+        except csv.Error as exc:
+            raise APIValidationError({"file": "The CSV file is malformed."}) from exc
+    if extension == "xlsx":
+        try:
+            workbook = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+            sheet = workbook.active
+            values = sheet.iter_rows(values_only=True)
+            headers = [str(value or "").strip() for value in next(values, ())]
+            rows = [dict(zip(headers, row)) for row in values]
+            workbook.close()
+            return rows
+        except Exception as exc:
+            raise APIValidationError({"file": "The Excel workbook could not be read."}) from exc
+    raise APIValidationError({"file": "Choose a .xlsx, .csv, or .json file."})
+
+
+def _import_bool(value, default=True):
+    if value in (None, ""):
+        return default
+    if isinstance(value, bool):
+        return value
+    normalized = str(value).strip().lower()
+    if normalized in {"true", "1", "yes", "y", "oui", "نعم"}:
+        return True
+    if normalized in {"false", "0", "no", "n", "non", "لا"}:
+        return False
+    raise ValueError("Use true/false, yes/no, or 1/0.")
+
+
+class MerchantSectionImportView(CatalogAccessMixin, APIView):
+    """Create or update sections by key from an XLSX, CSV, or JSON file."""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    permission_map = {"POST": "collections.manage"}
+
+    def post(self, request, store_id):
+        store = _merchant_store(request.user, store_id)
+        upload = request.FILES.get("file")
+        if upload is None:
+            return Response({"file": "Choose a file to import."}, status=status.HTTP_400_BAD_REQUEST)
+        if upload.size > 5 * 1024 * 1024:
+            return Response({"file": "The import file must be 5 MB or smaller."}, status=status.HTTP_400_BAD_REQUEST)
+        rows = [
+            row for row in _section_import_rows(upload)
+            if any(value not in (None, "") for value in row.values())
+        ]
+        if not rows:
+            return Response({"file": "The import file has no section rows."}, status=status.HTTP_400_BAD_REQUEST)
+        if len(rows) > 1000:
+            return Response({"file": "Import at most 1,000 sections at a time."}, status=status.HTTP_400_BAD_REQUEST)
+
+        errors = []
+        prepared = []
+        seen_keys = set()
+        for index, source in enumerate(rows, start=2):
+            row = {str(key).strip().lower(): value for key, value in source.items() if key is not None}
+            unknown = sorted(set(row) - SECTION_IMPORT_FIELDS)
+            if unknown:
+                errors.append({"row": index, "field": unknown[0], "message": "Unknown column."})
+                continue
+            translations = {
+                language: str(row.get(f"name_{language}") or "").strip()
+                for language in ("en", "fr", "ar")
+            }
+            available_name = translations["en"] or next((value for value in translations.values() if value), "")
+            key = slugify(str(row.get("key") or available_name))
+            if not available_name:
+                errors.append({"row": index, "field": "name_en", "message": "Add a name in at least one language."})
+                continue
+            if not key:
+                errors.append({"row": index, "field": "key", "message": "Add a valid key or English name."})
+                continue
+            if key in seen_keys:
+                errors.append({"row": index, "field": "key", "message": "This key appears more than once in the file."})
+                continue
+            seen_keys.add(key)
+            try:
+                sort_order = int(row.get("sort_order") or 0)
+                if sort_order < 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                errors.append({"row": index, "field": "sort_order", "message": "Use a whole number of 0 or greater."})
+                continue
+            try:
+                is_visible = _import_bool(row.get("is_visible"))
+            except ValueError as exc:
+                errors.append({"row": index, "field": "is_visible", "message": str(exc)})
+                continue
+            prepared.append((key, {
+                "key": key,
+                "label": available_name,
+                "label_translations": translations,
+                "icon": str(row.get("icon") or "FaBoxOpen:fa").strip(),
+                "sort_order": sort_order,
+                "is_visible": is_visible,
+            }, index))
+        if errors:
+            return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        created = updated = 0
+        with transaction.atomic():
+            for key, data, row_number in prepared:
+                instance = CatalogSection.objects.filter(store=store, key=key).first()
+                serializer = MerchantSectionSerializer(
+                    instance, data=data, partial=instance is not None,
+                    context={"store": store, "request": request},
+                )
+                if not serializer.is_valid():
+                    transaction.set_rollback(True)
+                    return Response(
+                        {"errors": [{"row": row_number, "field": field, "message": str(messages[0])} for field, messages in serializer.errors.items()]},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                serializer.save(store=store) if instance is None else serializer.save()
+                created += instance is None
+                updated += instance is not None
+        return Response({"created": created, "updated": updated, "total": created + updated})
 
 
 class MerchantSectionRetrieveUpdateDestroyView(CatalogAccessMixin, generics.RetrieveUpdateDestroyAPIView):
