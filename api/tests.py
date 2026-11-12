@@ -219,7 +219,7 @@ class StorefrontConfigViewTests(TestCase):
         self.assertEqual(data["appearance"]["typography"], self.config.appearance["typography"])
         self.assertEqual(data["appearance"]["colors"], {
             "theme_primary": "", "theme_secondary": "", "theme_muted": "",
-            "page": "", "header": "", "header_text": "", "navigation": "", "navigation_text": "", "announcement": "", "hero": "",
+            "page": "", "header": "", "header_text": "", "navigation": "", "navigation_text": "", "menu_dropdown": "", "announcement": "", "hero": "",
             "section": "", "card": "", "discount_badge": "", "discount_badge_text": "", "newsletter": "", "footer": "",
         })
         self.assertEqual(data["appearance"]["header"]["width"], "contained")
