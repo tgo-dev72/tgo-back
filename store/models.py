@@ -85,6 +85,7 @@ def default_storefront_appearance():
             "header_text": "",
             "navigation": "",
             "navigation_text": "",
+            "menu_dropdown": "",
             "announcement": "",
             "hero": "",
             "section": "",
@@ -117,7 +118,7 @@ def normalize_storefront_appearance(value):
         "typography": {"body_font", "heading_font", "base_size", "heading_scale"},
         "header": {"layout", "sticky", "width", "logo_size", "nav_alignment", "show_search", "show_account", "show_language", "show_cart", "show_categories", "show_about", "show_contact"},
         "style": {"button_shape", "card_shape", "card_padding", "card_alignment", "card_hover", "content_width"},
-        "colors": {"theme_primary", "theme_secondary", "theme_muted", "page", "header", "header_text", "navigation", "navigation_text", "announcement", "hero", "section", "card", "discount_badge", "discount_badge_text", "newsletter", "footer"},
+        "colors": {"theme_primary", "theme_secondary", "theme_muted", "page", "header", "header_text", "navigation", "navigation_text", "menu_dropdown", "announcement", "hero", "section", "card", "discount_badge", "discount_badge_text", "newsletter", "footer"},
         "footer": {"show_contact", "show_social_links", "copyright"},
     }
     for group, allowed in group_fields.items():

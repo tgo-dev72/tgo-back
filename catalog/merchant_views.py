@@ -114,13 +114,13 @@ class MerchantSectionListCreateView(CatalogAccessMixin, generics.ListCreateAPIVi
 
 
 SECTION_IMPORT_FIELDS = {
-    "key", "name_en", "name_fr", "name_ar", "icon", "sort_order", "is_visible",
+    "key", "name_en", "name_fr", "name_ar", "icon", "sort_order", "is_visible", "show_banner_overlay", "show_banner_title",
 }
-SECTION_IMPORT_HEADERS = ["key", "name_en", "name_fr", "name_ar", "icon", "sort_order", "is_visible"]
+SECTION_IMPORT_HEADERS = ["key", "name_en", "name_fr", "name_ar", "icon", "sort_order", "is_visible", "show_banner_overlay", "show_banner_title"]
 SECTION_IMPORT_EXAMPLES = [
-    ["women", "Women", "Femmes", "نساء", "FaTshirt:fa", 1, True],
-    ["beauty", "Beauty", "Beauté", "الجمال", "FaHeart:fa", 2, True],
-    ["accessories", "Accessories", "Accessoires", "إكسسوارات", "FaBagShopping:fa6", 3, True],
+    ["women", "Women", "Femmes", "نساء", "FaTshirt:fa", 1, True, True, True],
+    ["beauty", "Beauty", "Beauté", "الجمال", "FaHeart:fa", 2, True, False, True],
+    ["accessories", "Accessories", "Accessoires", "إكسسوارات", "FaBagShopping:fa6", 3, True, True, False],
 ]
 
 
@@ -240,6 +240,12 @@ class MerchantSectionImportView(CatalogAccessMixin, APIView):
             except ValueError as exc:
                 errors.append({"row": index, "field": "is_visible", "message": str(exc)})
                 continue
+            try:
+                show_banner_overlay = _import_bool(row.get("show_banner_overlay"))
+                show_banner_title = _import_bool(row.get("show_banner_title"))
+            except ValueError as exc:
+                errors.append({"row": index, "field": "show_banner_overlay", "message": str(exc)})
+                continue
             prepared.append((key, {
                 "key": key,
                 "label": available_name,
@@ -247,6 +253,8 @@ class MerchantSectionImportView(CatalogAccessMixin, APIView):
                 "icon": str(row.get("icon") or "FaBoxOpen:fa").strip(),
                 "sort_order": sort_order,
                 "is_visible": is_visible,
+                "show_banner_overlay": show_banner_overlay,
+                "show_banner_title": show_banner_title,
             }, index))
         if errors:
             first = errors[0]
@@ -306,7 +314,7 @@ class MerchantSectionImportTemplateView(CatalogAccessMixin, APIView):
         elif file_format == "xlsx":
             workbook = Workbook()
             sheet = workbook.active
-            sheet.title = "Sections"
+            sheet.title = "Collections"
             sheet.append(SECTION_IMPORT_HEADERS)
             for row in SECTION_IMPORT_EXAMPLES:
                 sheet.append(row)
@@ -323,6 +331,8 @@ class MerchantSectionImportTemplateView(CatalogAccessMixin, APIView):
             instructions.append(["icon", "Optional. Use one of the icon values shown in the sample rows."])
             instructions.append(["sort_order", "Whole number of 0 or greater. Lower numbers appear first."])
             instructions.append(["is_visible", "Use true/false, yes/no, or 1/0."])
+            instructions.append(["show_banner_overlay", "Show or hide the dark effect over the collection banner."])
+            instructions.append(["show_banner_title", "Show or hide the collection title over the banner."])
             instructions.column_dimensions["A"].width = 30
             instructions.column_dimensions["B"].width = 80
             output = io.BytesIO()
@@ -333,7 +343,7 @@ class MerchantSectionImportTemplateView(CatalogAccessMixin, APIView):
             )
         else:
             return Response({"file_format": "Choose xlsx, csv, or json."}, status=status.HTTP_400_BAD_REQUEST)
-        response["Content-Disposition"] = f'attachment; filename="sections-import-template.{file_format}"'
+        response["Content-Disposition"] = f'attachment; filename="collections-import-template.{file_format}"'
         return response
 
 

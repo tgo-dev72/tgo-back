@@ -103,7 +103,7 @@ class MerchantSectionImportTests(TestCase):
         csv_response = self.client.get(base, {"file_format": "csv"})
         self.assertEqual(csv_response.status_code, 200)
         rows = list(csv.reader(io.StringIO(csv_response.content.decode("utf-8-sig"))))
-        self.assertEqual(rows[0], ["key", "name_en", "name_fr", "name_ar", "icon", "sort_order", "is_visible"])
+        self.assertEqual(rows[0], ["key", "name_en", "name_fr", "name_ar", "icon", "sort_order", "is_visible", "show_banner_overlay", "show_banner_title"])
         self.assertEqual(rows[1][0], "women")
 
         json_response = self.client.get(base, {"file_format": "json"})
@@ -113,5 +113,5 @@ class MerchantSectionImportTests(TestCase):
         xlsx_response = self.client.get(base, {"file_format": "xlsx"})
         self.assertEqual(xlsx_response.status_code, 200)
         workbook = load_workbook(io.BytesIO(xlsx_response.content), read_only=True)
-        self.assertEqual(workbook["Sections"]["A1"].value, "key")
+        self.assertEqual(workbook["Collections"]["A1"].value, "key")
         self.assertEqual(workbook["Instructions"]["A2"].value, "key")

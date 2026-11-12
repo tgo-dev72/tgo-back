@@ -446,6 +446,36 @@ class CatalogTransferTests(TestCase):
         self.assertEqual(document["schema"], "tijarago.catalog")
         self.assertEqual(document["products"][0]["variants"][0]["sku"], "SHIRT-S")
 
+    def test_native_json_with_explicit_sections_needs_no_default_section(self):
+        payload = {
+            "schema": "tijarago.catalog", "version": 1,
+            "products": [{
+                "ref": "NO-DEFAULT", "name": "Already classified", "section": "general",
+                "price": "12.00", "variants": [{"quantity": 2}],
+            }],
+        }
+        response = self.client.post(
+            f"/api/catalog/store/{self.store.pk}/imports/validate/",
+            {"file": SimpleUploadedFile("products.json", json.dumps(payload).encode(), content_type="application/json")},
+            HTTP_IDEMPOTENCY_KEY="native-no-default",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertTrue(response.data["valid"], response.data)
+
+    def test_native_json_default_applies_only_to_products_missing_section(self):
+        payload = {
+            "schema": "tijarago.catalog", "version": 1,
+            "products": [{
+                "ref": "FALLBACK", "name": "Needs fallback", "price": "8.00",
+                "variants": [{"quantity": 1}],
+            }],
+        }
+        response = self.upload_json(payload, "native-with-default")
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertTrue(response.data["valid"], response.data)
+
     @patch("catalog.remote_media.download_image", side_effect=AssertionError("commit must not download remote media"))
     def test_external_products_json_is_detected_and_normalized(self, _download_image):
         payload = {"products": [{

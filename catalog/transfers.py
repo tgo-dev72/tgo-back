@@ -117,9 +117,9 @@ OPTION_KIND_LABELS = {
 }
 SIZE_VALUES = ("XXS", "XS", "S", "M", "L", "XL", "XXL", "3XL", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46", "48", "50")
 TEMPLATE_COPY = {
-    "ar": {"product": "قميص تجريبي", "description": "احذف هذين السطرين وأضف منتجاتك", "size": "المقاس", "color": "اللون", "red": "أحمر", "products": "المنتجات", "instructions": "التعليمات", "sections": "الأقسام", "colors": "الألوان", "usage": "اختر نوع الخيار أولاً؛ ستتغير قائمة القيم حسب اللون أو المقاس أو النص."},
-    "fr": {"product": "T-shirt exemple", "description": "Supprimez ces lignes et ajoutez vos produits", "size": "Taille", "color": "Couleur", "red": "Rouge", "products": "Produits", "instructions": "Instructions", "sections": "Catégories", "colors": "Couleurs", "usage": "Choisissez d’abord le type d’option ; les valeurs proposées changent pour la couleur, la taille ou le texte."},
-    "en": {"product": "Sample T-shirt", "description": "Delete these rows and add your products", "size": "Size", "color": "Color", "red": "Red", "products": "Products", "instructions": "Instructions", "sections": "Sections", "colors": "Colors", "usage": "Choose the option kind first; suggested values change for color, size, or text."},
+    "ar": {"product": "قميص تجريبي", "description": "احذف هذين السطرين وأضف منتجاتك", "size": "المقاس", "color": "اللون", "red": "أحمر", "products": "المنتجات", "instructions": "التعليمات", "sections": "المجموعات", "colors": "الألوان", "usage": "اختر نوع الخيار أولاً؛ ستتغير قائمة القيم حسب اللون أو المقاس أو النص."},
+    "fr": {"product": "T-shirt exemple", "description": "Supprimez ces lignes et ajoutez vos produits", "size": "Taille", "color": "Couleur", "red": "Rouge", "products": "Produits", "instructions": "Instructions", "sections": "Collections", "colors": "Couleurs", "usage": "Choisissez d’abord le type d’option ; les valeurs proposées changent pour la couleur, la taille ou le texte."},
+    "en": {"product": "Sample T-shirt", "description": "Delete these rows and add your products", "size": "Size", "color": "Color", "red": "Red", "products": "Products", "instructions": "Instructions", "sections": "Collections", "colors": "Colors", "usage": "Choose the option kind first; suggested values change for color, size, or text."},
 }
 
 
@@ -318,7 +318,7 @@ GUIDE_COPY = {
         "steps": [
             "Download the CSV or Excel template.",
             "Keep the column names unchanged. For products with options, repeat the ref for each combination and complete the option and variant columns.",
-            "Use an existing section key from the Sections sheet. Keep the same ref when updating an existing product.",
+            "Use an existing collection key. Keep the same ref when updating an existing product.",
             "Upload the file and correct any errors shown beside its rows.",
             "Review the numbers of new and updated products, then approve the import.",
         ],
@@ -329,7 +329,7 @@ GUIDE_COPY = {
         "steps": [
             "Téléchargez le modèle CSV ou Excel.",
             "Conservez les noms des colonnes. Pour un produit avec options, répétez ref pour chaque combinaison et complétez les colonnes option et variante.",
-            "Utilisez une clé de catégorie existante dans la feuille Sections. Conservez la même ref pour mettre à jour un produit existant.",
+            "Utilisez une clé de collection existante. Conservez la même ref pour mettre à jour un produit existant.",
             "Importez le fichier et corrigez les erreurs indiquées à côté des lignes.",
             "Vérifiez le nombre de produits créés et mis à jour, puis approuvez l’import.",
         ],
@@ -546,7 +546,7 @@ class CatalogExportView(APIView):
         if export_format == "xlsx":
             workbook, output = Workbook(), io.BytesIO(); sheet = workbook.active; sheet.title = "Products"; sheet.append(FIELDS)
             for row in rows: sheet.append(row)
-            sections = workbook.create_sheet("Sections"); sections.append(("section", "name"))
+            sections = workbook.create_sheet("Collections"); sections.append(("collection", "name"))
             for item in store.catalog_sections.order_by("sort_order", "key"): sections.append((item.key, item.label))
             colors = _add_color_palette_sheet(workbook, "Colors")
             _configure_excel_products_sheet(sheet, section_sheet=sections, color_sheet=colors)
@@ -750,6 +750,8 @@ def _parse_json(raw, sections, default_section="", external_policy=None):
     rows, errors, seen = [], [], set()
     for number, source in enumerate(payload["products"], 1):
         if not isinstance(source, dict): errors.append({"row": number, "fields": {"product": "Must be an object."}}); continue
+        if native and default_section and not str(source.get("section") or "").strip():
+            source = {**source, "section": default_section}
         if not native and not (external_policy or {}).get("include_unavailable", True):
             variants = source.get("variants") if isinstance(source.get("variants"), list) else []
             if variants and not any(_external_available(item.get("available")) for item in variants if isinstance(item, dict)):
@@ -1303,7 +1305,7 @@ class CatalogImportValidateView(APIView):
             return Response({"file": "Variants.csv cannot be imported alone. Select Products.csv first and upload both files together."}, status=400)
         if filename.endswith(".json"):
             default_section = str(request.data.get("default_section") or "").strip()
-            if default_section not in sections:
+            if default_section and default_section not in sections:
                 return Response({"default_section": "Choose a section belonging to this store for products without source classification."}, status=400)
             rows, errors, schema = _parse_json(raw, sections, default_section, external_policy); source_format = "json"
         elif filename.endswith(".csv") and (variants_upload is not None or _has_native_product_headers(raw)):

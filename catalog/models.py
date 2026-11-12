@@ -176,6 +176,8 @@ class CatalogSection(models.Model):
         blank=True,
         default="",
     )
+    show_banner_overlay = models.BooleanField(default=True)
+    show_banner_title = models.BooleanField(default=True)
     is_visible = models.BooleanField(default=True)
     parent = models.ForeignKey(
         "self",

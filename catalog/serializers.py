@@ -222,7 +222,7 @@ class CatalogSectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = CatalogSection
         fields = [
-            "id", "key", "label", "label_translations", "description", "thumbnail", "is_visible",
+            "id", "key", "label", "label_translations", "description", "thumbnail", "show_banner_overlay", "show_banner_title", "is_visible",
             "parent", "sort_mode", "icon", "sort_order", "attribute_defs",
             "seo_title", "seo_description", "seo_social_image",
         ]
@@ -479,7 +479,7 @@ class MerchantSectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = CatalogSection
         fields = [
-            "id", "key", "label", "label_translations", "description", "thumbnail", "is_visible",
+            "id", "key", "label", "label_translations", "description", "thumbnail", "show_banner_overlay", "show_banner_title", "is_visible",
             "parent", "sort_mode", "icon", "sort_order", "attribute_defs",
             "seo_title", "seo_description", "seo_social_image",
         ]
