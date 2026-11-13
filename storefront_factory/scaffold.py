@@ -31,7 +31,7 @@ def storefront_base_url(req) -> str:
     return default_storefront_url(req.slug)
 
 STOREFRONT_SECURITY_HEADERS = [
-    {"key": "Content-Security-Policy", "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self' https:; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://api.tijarago.com wss://api.tijarago.com; manifest-src 'self'; worker-src 'self' blob:; upgrade-insecure-requests"},
+    {"key": "Content-Security-Policy", "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self' https:; script-src 'self' https://connect.facebook.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://api.tijarago.com wss://api.tijarago.com https://www.facebook.com https://connect.facebook.net; manifest-src 'self'; worker-src 'self' blob:; upgrade-insecure-requests"},
     {"key": "Referrer-Policy", "value": "strict-origin-when-cross-origin"},
     {"key": "X-Content-Type-Options", "value": "nosniff"},
     {"key": "X-Frame-Options", "value": "DENY"},

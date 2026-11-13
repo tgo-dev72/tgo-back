@@ -115,6 +115,18 @@ class StorefrontConfigView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
+    @staticmethod
+    def _meta_config(store):
+        from commerce_analytics.models import MetaIntegration
+
+        integration = MetaIntegration.objects.filter(store=store, enabled=True).only(
+            "pixel_id", "encrypted_access_token",
+        ).first()
+        return {
+            "enabled": bool(integration and integration.pixel_id and integration.encrypted_access_token),
+            "pixelId": integration.pixel_id if integration else "",
+        }
+
     def get(self, request):
         store = resolve_store(request)
         rich_text = request.query_params.get("rich_text") == "1"
@@ -170,6 +182,7 @@ class StorefrontConfigView(APIView):
         data = {
             "storeName": store.name,
             "slug": store.slug,
+            "meta": self._meta_config(store),
             "domain": _storefront_domain(store, config),
             "canonicalOrigin": storefront_seo_policy(store, config).canonical_origin,
             "indexingAllowed": storefront_seo_policy(store, config).indexable and not bool(demo_profile),

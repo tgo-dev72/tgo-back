@@ -353,7 +353,8 @@ def quote_order(store, customer, items, request=None, coupon_code=""):
 
 @transaction.atomic
 def create_order(store, customer, items, payment_mode=Order.PaymentMode.ONLINE,
-                 request=None, notes="", marketing_consent=False, coupon_code="",
+                 request=None, notes="", marketing_consent=False, marketing_tracking_consent=False,
+                 marketing_tracking_id="", coupon_code="",
                  idempotency_key="", checkout_fingerprint="", expected_totals=None):
     """Create a pending order from a customer snapshot and reserve its stock.
 
@@ -380,6 +381,11 @@ def create_order(store, customer, items, payment_mode=Order.PaymentMode.ONLINE,
     invoicing_enabled = _invoicing_enabled(store, config)
     is_cod = payment_mode == Order.PaymentMode.COD
 
+    tracking_hash = ""
+    if marketing_tracking_consent and marketing_tracking_id:
+        from commerce_analytics.privacy import tracking_visitor_hash
+        tracking_hash = tracking_visitor_hash(store, marketing_tracking_id)
+
     order = Order.objects.create(
         store=store,
         client=_resolve_client(request, store),
@@ -396,6 +402,8 @@ def create_order(store, customer, items, payment_mode=Order.PaymentMode.ONLINE,
         customer_address=customer.get("address", ""),
         customer_notes=notes,
         marketing_consent=marketing_consent,
+        marketing_tracking_consent=marketing_tracking_consent,
+        marketing_tracking_visitor_hash=tracking_hash,
         idempotency_key=idempotency_key,
         checkout_fingerprint=checkout_fingerprint if idempotency_key else "",
     )
@@ -578,6 +586,11 @@ def confirm_order(order, changed_by=None, notes="", acknowledged_item_ids=None, 
     _award_loyalty_points(order.client, order.store, order.loyalty_points_awarded)
 
     _record_transition(order, old_status, Order.Status.CONFIRMED, changed_by, notes)
+    if order.marketing_tracking_consent:
+        from commerce_analytics.meta import queue_order_lifecycle_event
+        queue_order_lifecycle_event(order, "OrderConfirmed")
+        if order.payment_mode == Order.PaymentMode.ONLINE:
+            queue_order_lifecycle_event(order, "PaymentCollected")
     _notify_on_commit(order, "confirmed")
     return order
 
@@ -644,6 +657,12 @@ def deliver_order(order, changed_by=None, notes=""):
     order.save(update_fields=["status", "is_paid", "delivered_at", "updated_at"])
 
     _record_transition(order, old_status, Order.Status.DELIVERED, changed_by, notes)
+    if order.marketing_tracking_consent:
+        from commerce_analytics.meta import queue_order_lifecycle_event
+        queue_order_lifecycle_event(order, "OrderDelivered")
+        if order.payment_mode == Order.PaymentMode.COD:
+            queue_order_lifecycle_event(order, "Purchase")
+            queue_order_lifecycle_event(order, "PaymentCollected")
     _notify_on_commit(order, "delivered")
     from .invoices import schedule_invoice
     schedule_invoice(order.pk)

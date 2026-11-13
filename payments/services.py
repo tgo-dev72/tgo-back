@@ -178,6 +178,10 @@ def handle_webhook(store, order, event: GatewayEvent):
             order.is_paid = order.IsPaid.CONFIRMED
             order.transaction_id = event.provider_transaction_id
             order.save(update_fields=["is_paid", "transaction_id", "updated_at"])
+            if order.marketing_tracking_consent:
+                from commerce_analytics.meta import queue_order_lifecycle_event
+                queue_order_lifecycle_event(order, "Purchase")
+                queue_order_lifecycle_event(order, "PaymentCollected")
         else:
             fail_order(order)
 

@@ -15,7 +15,6 @@ def configured():
         and settings.MAILBOX_INBOUND_SECRET
     )
 
-
 def activate_mailbox(store):
     if not configured():
         raise EmailRoutingError("The dashboard mailbox is not configured yet.")

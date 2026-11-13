@@ -144,6 +144,14 @@ class Order(models.Model):
         default=False,
         help_text="Customer explicitly agreed to receive store campaigns at checkout.",
     )
+    marketing_tracking_consent = models.BooleanField(
+        default=False,
+        help_text="Customer explicitly consented to advertising measurement for this order.",
+    )
+    marketing_tracking_visitor_hash = models.CharField(
+        max_length=64, blank=True, default="", editable=False,
+        help_text="One-way tenant-scoped identifier used only for later consent withdrawal.",
+    )
     loyalty_points_awarded = models.PositiveIntegerField(
         default=0,
         help_text="Exact points granted by this order, used for safe reversal.",

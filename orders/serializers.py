@@ -38,6 +38,8 @@ class CreateOrderSerializer(serializers.Serializer):
     items = OrderItemInputSerializer(many=True, allow_empty=False)
     notes = serializers.CharField(required=False, allow_blank=True, default="")
     marketing_consent = serializers.BooleanField(required=False, default=False)
+    marketing_tracking_consent = serializers.BooleanField(required=False, default=False, write_only=True)
+    marketing_tracking_id = serializers.CharField(required=False, allow_blank=True, default="", max_length=128, write_only=True)
     coupon_code = serializers.CharField(
         required=False,
         allow_blank=True,

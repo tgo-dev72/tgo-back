@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.utils.crypto import salted_hmac
+from django.core.exceptions import ImproperlyConfigured
+from django.utils import timezone
 from secrets import compare_digest
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -14,7 +16,10 @@ from access_control.services import permitted_store
 from store.context import resolve_store
 from store.models import Store
 
-from .models import StorefrontEvent
+from .credentials import encrypt_access_token
+from .meta import queue_storefront_meta_event, retry_meta_deliveries, send_test_event
+from .models import MetaIntegration, StorefrontEvent
+from .privacy import withdraw_tracking_consent
 from .serializers import StorefrontEventSerializer
 from .services import (
     ANALYTICS_RANGES,
@@ -127,8 +132,11 @@ class StorefrontEventCreateView(APIView):
                 {"detail": "This event identifier was already used for a different event."},
                 status=status.HTTP_409_CONFLICT,
             )
+        queue_storefront_meta_event(
+            event, request, consent=data.get("marketing_tracking_consent", False),
+        )
         return Response(
-            {"accepted": True, "deduplicated": not created},
+            {"accepted": True, "deduplicated": not created, "event_id": str(event.event_id)},
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
@@ -157,8 +165,131 @@ class AnalyticsMaintenanceView(APIView):
         deleted_events = purge_expired_storefront_events(
             settings.ANALYTICS_EVENT_RETENTION_DAYS,
         )
+        meta_deliveries = retry_meta_deliveries()
         return Response({
             "ok": True,
             "inventory_snapshots": snapshot_count,
             "expired_events_deleted": deleted_events,
+            "meta_deliveries_sent": meta_deliveries,
         })
+
+
+def _meta_state(integration):
+    configured = bool(integration.pixel_id and integration.encrypted_access_token)
+    return {
+        "enabled": integration.enabled,
+        "pixel_id": integration.pixel_id,
+        "token_configured": bool(integration.encrypted_access_token),
+        "status": "connected" if integration.enabled and configured else "configured" if configured else "disconnected",
+        "last_tested_at": integration.last_tested_at,
+        "last_test_succeeded": integration.last_test_succeeded,
+        "last_error_code": integration.last_error_code,
+    }
+
+
+class MetaIntegrationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, store_id):
+        store = permitted_store(request.user, store_id, "marketing.manage")
+        integration, _ = MetaIntegration.objects.get_or_create(store=store)
+        return Response(_meta_state(integration))
+
+    def patch(self, request, store_id):
+        store = permitted_store(request.user, store_id, "marketing.manage")
+        integration, _ = MetaIntegration.objects.get_or_create(store=store)
+        pixel_id = str(request.data.get("pixel_id", integration.pixel_id)).strip()
+        if pixel_id and (not pixel_id.isdigit() or not 5 <= len(pixel_id) <= 32):
+            return Response({"pixel_id": ["Enter a valid numeric Meta Pixel/Dataset ID."]}, status=400)
+        token = request.data.get("access_token")
+        if token is not None:
+            token = str(token).strip()
+            if not token:
+                return Response({"access_token": ["Use disconnect to remove the credential."]}, status=400)
+            try:
+                integration.encrypted_access_token = encrypt_access_token(token)
+            except ImproperlyConfigured:
+                return Response(
+                    {"detail": "Meta credential encryption is not configured on the platform."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            integration.token_configured_at = timezone.now()
+        enabled = bool(request.data.get("enabled", integration.enabled))
+        if enabled and (not pixel_id or not integration.encrypted_access_token):
+            return Response({"detail": "A Pixel/Dataset ID and access token are required before enabling Meta tracking."}, status=400)
+        integration.pixel_id = pixel_id
+        integration.enabled = enabled
+        integration.last_error_code = ""
+        integration.save()
+        return Response(_meta_state(integration))
+
+    def delete(self, request, store_id):
+        store = permitted_store(request.user, store_id, "marketing.manage")
+        integration, _ = MetaIntegration.objects.get_or_create(store=store)
+        integration.enabled = False
+        integration.pixel_id = ""
+        integration.encrypted_access_token = ""
+        integration.token_configured_at = None
+        integration.last_test_succeeded = False
+        integration.last_error_code = ""
+        integration.save()
+        return Response(_meta_state(integration))
+
+
+class MetaIntegrationTestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, store_id):
+        store = permitted_store(request.user, store_id, "marketing.manage")
+        integration = get_object_or_404(MetaIntegration, store=store)
+        code = str(request.data.get("test_event_code", "")).strip()
+        if not code:
+            return Response({"test_event_code": ["Enter the Test Events code from Meta Events Manager."]}, status=400)
+        try:
+            ok = send_test_event(integration, code)
+            error = "" if ok else "events_not_received"
+        except Exception as exc:
+            ok, error = False, exc.__class__.__name__
+        integration.last_tested_at = timezone.now()
+        integration.last_test_succeeded = ok
+        integration.last_error_code = error
+        integration.save(update_fields=["last_tested_at", "last_test_succeeded", "last_error_code", "updated_at"])
+        return Response(_meta_state(integration), status=200 if ok else 502)
+
+
+class MetaDeliveryRetryView(APIView):
+    """Frequent CAPI retry worker, isolated from daily analytics maintenance."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        secret = settings.CRON_SECRET
+        supplied = request.headers.get("Authorization", "")
+        if not secret:
+            return Response({"detail": "Meta retry maintenance is not configured."}, status=503)
+        if not compare_digest(supplied, f"Bearer {secret}"):
+            return Response({"detail": "Unauthorized."}, status=401)
+        return Response({"ok": True, "meta_deliveries_sent": retry_meta_deliveries()})
+
+
+class MetaConsentView(APIView):
+    """Record withdrawal without retaining a raw browser identifier."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "storefront_analytics_event"
+
+    def post(self, request):
+        store = resolve_store(request)
+        visitor_id = str(request.data.get("visitor_id", "")).strip()
+        granted = request.data.get("granted") is True
+        if not visitor_id or len(visitor_id) > 128:
+            return Response({"visitor_id": ["A valid consent identifier is required."]}, status=400)
+        if granted:
+            # Grant is attached only to future checkout submissions; never
+            # retroactively opt an existing order into advertising tracking.
+            return Response(status=204)
+        withdraw_tracking_consent(store, visitor_id)
+        return Response(status=204)

@@ -545,6 +545,13 @@ EMAIL_VERIFICATION_FRONTEND_URL = os.environ.get(
 # Public base used to build unsubscribe links in marketing emails.
 UNSUBSCRIBE_BASE_URL = os.environ.get('UNSUBSCRIBE_BASE_URL', '')
 
+# Per-store Meta CAPI credentials are encrypted with this platform secret.
+# Rotate through an explicit credential migration; changing it makes stored tokens unreadable.
+META_CREDENTIAL_ENCRYPTION_KEY = os.environ.get("META_CREDENTIAL_ENCRYPTION_KEY", "").strip()
+META_GRAPH_API_VERSION = os.environ.get("META_GRAPH_API_VERSION", "").strip()
+META_CAPI_TIMEOUT_SECONDS = max(1, int(os.environ.get("META_CAPI_TIMEOUT_SECONDS", "8")))
+META_CAPI_MAX_ATTEMPTS = max(1, int(os.environ.get("META_CAPI_MAX_ATTEMPTS", "5")))
+
 # Production hardening — only once a Postgres-backed (deployed) environment.
 # Vercel terminates TLS and forwards over HTTP internally.
 if not DEBUG and database_url and not database_url.startswith(("sqlite://", "sqlite3://")):

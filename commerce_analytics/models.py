@@ -1,5 +1,6 @@
 import uuid
 
+from django.core.validators import RegexValidator
 from django.db import models
 
 from catalog.models import Product, StockVariant
@@ -60,6 +61,59 @@ class StorefrontEvent(models.Model):
             models.Index(fields=["store", "occurred_at"], name="analytics_store_time"),
             models.Index(fields=["store", "session_hash", "occurred_at"], name="analytics_store_session"),
         ]
+
+
+class MetaIntegration(models.Model):
+    """Per-store Meta configuration. The CAPI token is encrypted, never serialized."""
+
+    store = models.OneToOneField(Store, on_delete=models.CASCADE, related_name="meta_integration")
+    enabled = models.BooleanField(default=False)
+    pixel_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        validators=[RegexValidator(r"^\d{5,32}$", "Enter a valid numeric Meta Pixel/Dataset ID.")],
+    )
+    encrypted_access_token = models.TextField(blank=True, default="")
+    token_configured_at = models.DateTimeField(null=True, blank=True)
+    last_tested_at = models.DateTimeField(null=True, blank=True)
+    last_test_succeeded = models.BooleanField(default=False)
+    last_error_code = models.CharField(max_length=80, blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Meta integration for {self.store.slug}"
+
+
+class MetaEventDelivery(models.Model):
+    """Retryable, tenant-scoped Meta CAPI outbox containing hashed/minimal data only."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SENT = "sent", "Sent"
+        RETRY = "retry", "Retry"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="meta_event_deliveries")
+    integration = models.ForeignKey(MetaIntegration, on_delete=models.CASCADE, related_name="deliveries")
+    storefront_event = models.ForeignKey(StorefrontEvent, on_delete=models.SET_NULL, null=True, blank=True, related_name="meta_deliveries")
+    order = models.ForeignKey(Order, on_delete=models.SET_NULL, null=True, blank=True, related_name="meta_deliveries")
+    event_id = models.CharField(max_length=80)
+    event_name = models.CharField(max_length=40)
+    event_time = models.PositiveBigIntegerField()
+    event_source_url = models.URLField(max_length=1000, blank=True, default="")
+    payload = models.JSONField(default=dict)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+    last_error_code = models.CharField(max_length=80, blank=True, default="")
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["store", "event_id", "event_name"], name="uniq_meta_delivery_event")]
+        indexes = [models.Index(fields=["status", "next_attempt_at"], name="meta_delivery_retry")]
 
 
 class InventorySnapshot(models.Model):

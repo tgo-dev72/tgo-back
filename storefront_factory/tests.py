@@ -1150,6 +1150,7 @@ class ScaffoldCleanupTests(TestCase):
         self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
         self.assertNotIn("'unsafe-eval'", headers["Content-Security-Policy"])
         self.assertIn("https://fonts.googleapis.com", headers["Content-Security-Policy"])
+        self.assertIn("https://connect.facebook.net", headers["Content-Security-Policy"])
         self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
         self.assertIn("includeSubDomains", headers["Strict-Transport-Security"])
 

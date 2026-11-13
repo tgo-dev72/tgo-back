@@ -2,6 +2,7 @@ import uuid
 from io import StringIO
 from datetime import timedelta
 from decimal import Decimal
+from contextlib import contextmanager
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -16,7 +17,9 @@ from catalog.models import CatalogSection, Product, StockVariant
 from orders.models import Order, OrderedProduct
 from store.models import Store, StoreMember
 
-from .models import InventorySnapshot, StorefrontEvent
+from .credentials import decrypt_access_token
+from .meta import queue_order_lifecycle_event, queue_storefront_meta_event, retry_meta_deliveries, send_meta_delivery
+from .models import InventorySnapshot, MetaEventDelivery, MetaIntegration, StorefrontEvent
 from .services import build_store_report, capture_inventory_snapshot, is_collected_revenue_order
 
 
@@ -168,6 +171,165 @@ class StorefrontEventApiTests(AnalyticsTestCase):
         self.assertNotIn("raw-browser-id", event.visitor_hash)
         self.assertNotEqual(event.session_hash, "raw-session-id")
         self.assertNotIn("raw-session-id", event.session_hash)
+
+    @override_settings(META_CREDENTIAL_ENCRYPTION_KEY="test-only-high-entropy-meta-key")
+    @patch("commerce_analytics.meta.safe_send_meta_delivery")
+    def test_meta_event_requires_consent_and_is_tenant_scoped(self, _send):
+        from .credentials import encrypt_access_token
+        MetaIntegration.objects.create(store=self.store, enabled=True, pixel_id="123456789", encrypted_access_token=encrypt_access_token("secret-token"))
+        client = APIClient(); url = reverse("storefront-analytics-event")
+        base = {"event_type": "page_view", "properties": {"path": "/"}}
+        client.post(url, {**base, "event_id": str(uuid.uuid4())}, format="json", HTTP_X_STORE_SLUG=self.store.slug)
+        self.assertEqual(MetaEventDelivery.objects.count(), 0)
+        client.post(url, {**base, "event_id": str(uuid.uuid4()), "marketing_tracking_consent": True}, format="json", HTTP_X_STORE_SLUG=self.store.slug)
+        delivery = MetaEventDelivery.objects.get()
+        self.assertEqual(delivery.store, self.store)
+        self.assertEqual(delivery.event_name, "PageView")
+
+
+class MetaIntegrationTests(AnalyticsTestCase):
+    @override_settings(META_CREDENTIAL_ENCRYPTION_KEY="test-only-high-entropy-meta-key")
+    def test_credential_is_encrypted_and_never_returned(self):
+        url = reverse("meta-integration", args=[self.store.pk])
+        response = self.client_for(self.owner).patch(url, {"pixel_id": "123456789", "access_token": "plain-secret", "enabled": True}, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertNotIn("plain-secret", response.content.decode())
+        integration = MetaIntegration.objects.get(store=self.store)
+        self.assertNotIn("plain-secret", integration.encrypted_access_token)
+        self.assertEqual(decrypt_access_token(integration.encrypted_access_token), "plain-secret")
+        self.assertEqual(self.client_for(self.outsider).get(url).status_code, 404)
+
+    @override_settings(META_CREDENTIAL_ENCRYPTION_KEY="test-only-high-entropy-meta-key", META_GRAPH_API_VERSION="v24.0", META_CAPI_TIMEOUT_SECONDS=1, META_CAPI_MAX_ATTEMPTS=3)
+    @patch("commerce_analytics.meta.requests.post")
+    def test_capi_uses_shared_event_id_and_retries_without_exposing_token(self, post):
+        from .credentials import encrypt_access_token
+        integration = MetaIntegration.objects.create(store=self.store, enabled=True, pixel_id="123456789", encrypted_access_token=encrypt_access_token("plain-secret"))
+        delivery = MetaEventDelivery.objects.create(store=self.store, integration=integration, event_id="shared-123", event_name="PageView", event_time=123, payload={"action_source": "website"})
+        post.side_effect = __import__("requests").RequestException("offline")
+        self.assertFalse(send_meta_delivery(delivery.pk))
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.status, MetaEventDelivery.Status.RETRY)
+        self.assertEqual(delivery.attempts, 1)
+        self.assertNotIn("plain-secret", delivery.last_error_code)
+
+    @override_settings(META_CREDENTIAL_ENCRYPTION_KEY="test-only-high-entropy-meta-key")
+    @patch("commerce_analytics.meta.safe_send_meta_delivery")
+    def test_cod_purchase_only_queues_after_delivery_lifecycle(self, _send):
+        from .credentials import encrypt_access_token
+        MetaIntegration.objects.create(store=self.store, enabled=True, pixel_id="123456789", encrypted_access_token=encrypt_access_token("secret"))
+        order = self.create_order(amount="100", payment_mode=Order.PaymentMode.COD, paid=Order.IsPaid.COD, status=Order.Status.CONFIRMED)
+        order.marketing_tracking_consent = True; order.save(update_fields=["marketing_tracking_consent"])
+        queue_order_lifecycle_event(order, "OrderConfirmed")
+        self.assertFalse(MetaEventDelivery.objects.filter(event_name="Purchase").exists())
+        queue_order_lifecycle_event(order, "Purchase"); queue_order_lifecycle_event(order, "Purchase")
+        self.assertEqual(MetaEventDelivery.objects.filter(event_name="Purchase").count(), 1)
+
+    @override_settings(META_CREDENTIAL_ENCRYPTION_KEY="test-only-high-entropy-meta-key")
+    @patch("commerce_analytics.meta.safe_send_meta_delivery")
+    def test_paid_browser_purchase_converges_with_webhook_delivery(self, _send):
+        from django.test import RequestFactory
+        from .credentials import encrypt_access_token
+        integration = MetaIntegration.objects.create(store=self.store, enabled=True, pixel_id="123456789", encrypted_access_token=encrypt_access_token("secret"))
+        order = self.create_order(amount="100", payment_mode=Order.PaymentMode.ONLINE, paid=Order.IsPaid.CONFIRMED, status=Order.Status.PENDING)
+        order.marketing_tracking_consent = True; order.save(update_fields=["marketing_tracking_consent"])
+        server_delivery = queue_order_lifecycle_event(order, "Purchase")
+        event = StorefrontEvent.objects.create(
+            store=self.store, event_id=order.order_id, event_type=StorefrontEvent.EventType.ORDER_SUBMITTED,
+            order=order, properties={"payment_mode": "online_paid", "currency": "MAD", "cart_value": 100}, occurred_at=timezone.now(),
+        )
+        browser_delivery = queue_storefront_meta_event(event, RequestFactory().post("/", HTTP_ORIGIN="https://analytics-store.tijarago.com"), consent=True)
+        self.assertEqual(browser_delivery.pk, server_delivery.pk)
+        self.assertEqual(MetaEventDelivery.objects.filter(store=self.store, event_name="Purchase", event_id=str(order.order_id)).count(), 1)
+        self.assertEqual(browser_delivery.integration, integration)
+        _send.assert_not_called()
+
+    @override_settings(META_CREDENTIAL_ENCRYPTION_KEY="test-only-high-entropy-meta-key")
+    @patch("commerce_analytics.meta.safe_send_meta_delivery")
+    def test_cod_delivery_days_later_uses_delivery_time_and_stays_idempotent(self, _send):
+        from .credentials import encrypt_access_token
+        MetaIntegration.objects.create(store=self.store, enabled=True, pixel_id="123456789", encrypted_access_token=encrypt_access_token("secret"))
+        order = self.create_order(amount="100", payment_mode=Order.PaymentMode.COD, paid=Order.IsPaid.CONFIRMED, status=Order.Status.DELIVERED, days_ago=4)
+        order.marketing_tracking_consent = True; order.delivered_at = timezone.now(); order.save(update_fields=["marketing_tracking_consent", "delivered_at"])
+        before = int(timezone.now().timestamp())
+        first = queue_order_lifecycle_event(order, "Purchase"); second = queue_order_lifecycle_event(order, "Purchase")
+        self.assertEqual(first.pk, second.pk)
+        self.assertGreaterEqual(first.event_time, before)
+        self.assertEqual(first.event_id, str(order.order_id))
+
+    @patch("commerce_analytics.meta.send_meta_delivery", side_effect=RuntimeError("bad platform configuration"))
+    def test_retry_worker_isolates_configuration_failures(self, _send):
+        integration = MetaIntegration.objects.create(store=self.store, enabled=True, pixel_id="123456789", encrypted_access_token="unreadable")
+        MetaEventDelivery.objects.create(store=self.store, integration=integration, event_id="retry-safe", event_name="PageView", event_time=123, payload={})
+        self.assertEqual(retry_meta_deliveries(), 0)
+
+    @patch("commerce_analytics.meta.safe_send_meta_delivery")
+    def test_overlapping_retry_worker_does_not_send(self, send):
+        @contextmanager
+        def unavailable_lock():
+            yield False
+
+        with patch("commerce_analytics.meta._meta_retry_lock", unavailable_lock):
+            self.assertEqual(retry_meta_deliveries(), 0)
+        send.assert_not_called()
+
+    def test_consent_withdrawal_revokes_future_order_tracking_without_raw_identifier(self):
+        from .privacy import tracking_visitor_hash
+        visitor_id = "browser-consent-123"
+        order = self.create_order(
+            amount="100", payment_mode=Order.PaymentMode.COD,
+            paid=Order.IsPaid.COD, status=Order.Status.CONFIRMED,
+        )
+        order.marketing_tracking_consent = True
+        order.marketing_tracking_visitor_hash = tracking_visitor_hash(self.store, visitor_id)
+        order.save(update_fields=["marketing_tracking_consent", "marketing_tracking_visitor_hash"])
+        integration = MetaIntegration.objects.create(
+            store=self.store, enabled=True, pixel_id="123456789",
+            encrypted_access_token="encrypted-placeholder",
+        )
+        delivery = MetaEventDelivery.objects.create(
+            store=self.store, integration=integration, order=order,
+            event_id="pending-consented-order", event_name="OrderConfirmed",
+            event_time=123, payload={"user_data": {"em": ["hashed"]}, "custom_data": {"value": 100}},
+        )
+
+        response = APIClient().post(
+            reverse("meta-consent"), {"visitor_id": visitor_id, "granted": False},
+            format="json", HTTP_X_STORE_SLUG=self.store.slug,
+        )
+
+        self.assertEqual(response.status_code, 204, response.content)
+        order.refresh_from_db()
+        delivery.refresh_from_db()
+        self.assertFalse(order.marketing_tracking_consent)
+        self.assertEqual(order.marketing_tracking_visitor_hash, "")
+        self.assertEqual(delivery.status, MetaEventDelivery.Status.CANCELLED)
+        self.assertEqual(delivery.last_error_code, "consent_withdrawn")
+        self.assertNotIn("user_data", delivery.payload)
+        self.assertEqual(delivery.payload["custom_data"], {"value": 100})
+        self.assertIsNone(queue_order_lifecycle_event(order, "Purchase"))
+
+    @patch("commerce_analytics.meta.requests.post")
+    def test_delivery_rechecks_order_consent_before_sending(self, post):
+        integration = MetaIntegration.objects.create(
+            store=self.store, enabled=True, pixel_id="123456789",
+            encrypted_access_token="encrypted-placeholder",
+        )
+        order = self.create_order(
+            amount="100", payment_mode=Order.PaymentMode.COD,
+            paid=Order.IsPaid.COD, status=Order.Status.CONFIRMED,
+        )
+        delivery = MetaEventDelivery.objects.create(
+            store=self.store, integration=integration, order=order,
+            event_id="revoked-before-send", event_name="Purchase", event_time=123,
+            payload={"user_data": {"em": ["hashed"]}},
+        )
+
+        self.assertFalse(send_meta_delivery(delivery.pk))
+
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.status, MetaEventDelivery.Status.CANCELLED)
+        self.assertNotIn("user_data", delivery.payload)
+        post.assert_not_called()
 
     def test_reused_event_identifier_cannot_change_the_recorded_action(self):
         event_id = uuid.uuid4()
@@ -448,6 +610,25 @@ class InventorySnapshotTests(AnalyticsTestCase):
 
 
 class AnalyticsMaintenanceApiTests(AnalyticsTestCase):
+    @override_settings(CRON_SECRET="test-cron-secret-value")
+    @patch("commerce_analytics.views.retry_meta_deliveries", return_value=2)
+    def test_external_meta_retry_requires_exact_bearer_secret(self, retry):
+        client = APIClient()
+        url = reverse("meta-delivery-retry")
+
+        self.assertEqual(client.get(url).status_code, 401)
+        self.assertEqual(client.get(url, HTTP_AUTHORIZATION="Bearer wrong").status_code, 401)
+        response = client.get(url, HTTP_AUTHORIZATION="Bearer test-cron-secret-value")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {"ok": True, "meta_deliveries_sent": 2})
+        retry.assert_called_once_with()
+
+    @override_settings(CRON_SECRET="")
+    def test_external_meta_retry_fails_closed_without_secret(self):
+        response = APIClient().get(reverse("meta-delivery-retry"))
+        self.assertEqual(response.status_code, 503)
+
     @override_settings(CRON_SECRET="test-cron-secret-value")
     def test_cron_requires_bearer_secret_and_runs_both_tasks(self):
         old = StorefrontEvent.objects.create(

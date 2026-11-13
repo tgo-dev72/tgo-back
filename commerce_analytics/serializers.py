@@ -10,7 +10,7 @@ from .models import StorefrontEvent
 
 ALLOWED_EVENT_PROPERTIES = {
     "path", "query", "quantity", "cart_value", "currency", "source",
-    "campaign", "referrer_host", "results_count",
+    "campaign", "referrer_host", "results_count", "payment_mode",
 }
 
 LEGACY_EVENT_TYPES = {"purchase": StorefrontEvent.EventType.ORDER_SUBMITTED}
@@ -32,6 +32,7 @@ class StorefrontEventSerializer(serializers.Serializer):
     order_id = serializers.UUIDField(required=False, allow_null=True)
     properties = serializers.JSONField(required=False, default=dict)
     occurred_at = serializers.DateTimeField(required=False, default=timezone.now)
+    marketing_tracking_consent = serializers.BooleanField(required=False, default=False, write_only=True)
 
     def validate_properties(self, value):
         if not isinstance(value, dict):

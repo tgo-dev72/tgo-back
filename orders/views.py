@@ -118,6 +118,8 @@ class PublicOrderCreateView(APIView):
                 request=request,
                 notes=data.get("notes", ""),
                 marketing_consent=data.get("marketing_consent", False),
+                marketing_tracking_consent=data.get("marketing_tracking_consent", False),
+                marketing_tracking_id=data.get("marketing_tracking_id", ""),
                 coupon_code=data.get("coupon_code", ""),
                 idempotency_key=idempotency_key,
                 checkout_fingerprint=checkout_fingerprint,
